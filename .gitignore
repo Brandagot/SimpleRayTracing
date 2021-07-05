@@ -1,4 +1,4 @@
 *.old
 *.*~
-bin
+bin-debug-amd
 

@@ -724,7 +724,7 @@ void processCmd(int argc, char** argv,
 			++i;
 			if (i < argc)
 			{
-				aFileName = argv[i];
+				aFileName = ("./out/" +  (string)argv[i]);
 			}
 			else
 			{
