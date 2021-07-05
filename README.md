@@ -16,4 +16,6 @@ Originally used as an example of application for Dr. Franck P. Vidal's HPC modul
 
 This section demonstrates some images created during testing.
 
-At the moment, I have made some modifications 
+At the moment, I have made some modifications to remove the dragon and changed the way distance is used to set the shade. The x-ray source is now in the same position as the source.
+
+![](out/x-ray-10-threads-1512x1512-no_dragon.jpg)
