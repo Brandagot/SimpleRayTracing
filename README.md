@@ -4,6 +4,7 @@ Institute: School of Computer Science and Electronic Engineering, Bangor Univers
 Title: ICE4131 -- High Performance Computing <br />
 Subtitle: A Simple ray tracer to parallelise using PThread, OpenMP, MPI and CUDA. <br />
 ---
+<br />
 
 # SimpleRayTracing
 
