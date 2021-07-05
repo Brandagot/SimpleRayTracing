@@ -73,6 +73,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>	 // For timestamps
 #include <pthread.h>
 #include <vector>
+#include <algorithm>
 
 #include <assimp/Importer.hpp>  // C++ importer interface
 #include <assimp/scene.h>       // Output data structure
@@ -282,7 +283,7 @@ int main(int argc, char** argv)
 
 		Image output_image(image_width, image_height, r, g, b);
 
-		Vec3 light_position = origin + up * 100.0;
+		Vec3 light_position = origin;
 		Vec3 light_direction = bbox_centre - light_position;
 		light_direction.normalise();
 		Light light(g_white, light_direction, light_position);
@@ -441,8 +442,8 @@ void* renderLoopCallBack(void* apData)
 					float t;
 					bool intersect = ray.intersect(triangle, t);
 
-					// The ray interescted the triangle
-					if (intersect)
+					// The ray interescted the triangle that is the panel, not the dragon
+					if (intersect && &(*mesh_ite) == &p_thread_data->m_triangle_mesh_set[1])
 					{
 						// The intersection is closer to the view point than the previously recorded intersection
 						// Update the pixel value
@@ -532,19 +533,23 @@ void* renderLoopCallBack(void* apData)
 				if(intersect_points.size() % 2 == 0){
 					sort(intersect_points.begin(), intersect_points.end());
 					for(int i = 0; i < intersect_points.size(); i+=2){	
-						Vec3 second_hit = shadow_ray.getOrigin() + intersect_points[i] * shadow_ray_direction;
-						Vec3 first_hit = shadow_ray.getOrigin() + intersect_points[i + 1] * shadow_ray_direction;
+						// Vec3 second_hit = shadow_ray.getOrigin() + intersect_points[i] * shadow_ray_direction;
+						// Vec3 first_hit = shadow_ray.getOrigin() + intersect_points[i + 1] * shadow_ray_direction;
 
-						distance += sqrt(pow(first_hit.getX() - second_hit.getX(), 2) + pow(first_hit.getY() - second_hit.getY(), 2) + pow(first_hit.getZ() - second_hit.getZ(), 2));
+						distance += intersect_points[i + 1] - intersect_points[i]; // Apparently t is the distance from origin to intersection
 					}
 
 				} else {
 					std::cout << "it dont" << std::endl;
 				}
 
-				colour[0] *= distance * 0.05;
-				colour[1] *= distance * 0.05;
-				colour[2] *= distance * 0.05;
+				// At the moment this uses an arbitraty max value, taken by looking at the results briefly.
+				float value = (distance - 0) / (50) * (1 - 0) + 0; // Normalise the value a little - a division here could be optimised by inverting it and performing multiplication? should look at that.
+				// std::cout << value << std::endl;
+				
+				colour[0] *= value;
+				colour[1] *= value;
+				colour[2] *= value;
 			}
 
 			const Image& texture = p_intersected_object->getTexture();
