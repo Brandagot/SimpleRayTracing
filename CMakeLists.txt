@@ -85,6 +85,9 @@ find_package(Threads REQUIRED)
 add_executable(main-pthreads src/main-pthreads.cxx)
 TARGET_LINK_LIBRARIES(main-pthreads PUBLIC RayTracing ${ASSIMP_LIBRARY} Threads::Threads)
 
+add_executable(main-pthreads-redo src/main-pthreads-redo.cxx)
+TARGET_LINK_LIBRARIES(main-pthreads-redo PUBLIC RayTracing ${ASSIMP_LIBRARY} Threads::Threads)
+
 find_package(OpenMP REQUIRED)
 
 add_executable(main-omp src/main-omp.cxx)

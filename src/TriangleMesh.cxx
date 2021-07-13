@@ -99,7 +99,7 @@ void TriangleMesh::setGeometry(const std::vector<float>& aVertexSet)
 	}
 }
 
-
+// Each point in a face refers to an indexed vertix in vertexset
 //-------------------------------------------------------------------------
 void TriangleMesh::setGeometry(const std::vector<float>& aVertexSet,
 		                       const std::vector<unsigned int>& anIndexSet)
@@ -110,6 +110,8 @@ void TriangleMesh::setGeometry(const std::vector<float>& aVertexSet,
 	{
 		for (int i = 0; i < anIndexSet.size() / 3; ++i)
 		{
+			// * 3 because everthing in an Index works in sets of 3
+			// So, per face you need to move 3 over
 			unsigned int i1 = anIndexSet[i * 3 + 0];
 			unsigned int i2 = anIndexSet[i * 3 + 1];
 			unsigned int i3 = anIndexSet[i * 3 + 2];

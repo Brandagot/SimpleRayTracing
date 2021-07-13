@@ -245,8 +245,8 @@ int main(int argc, char** argv)
 		cout << "Loading meshes took: " << chrono::duration<double>(end - start).count() << " seconds" << endl << endl;
 
 		// Change the material of the 1st mesh
-		Material material(0.2 * g_red, g_green, g_blue, 1);
-		p_mesh_set[0].setMaterial(material);
+		// Material material(0.2 * g_red, g_green, g_blue, 1);
+		// p_mesh_set[0].setMaterial(material);
 
 		// Start timer for getting the scene box
 		cout << "Getting scene bbox... " << endl;
@@ -275,7 +275,7 @@ int main(int argc, char** argv)
 
 		Vec3 up(0.0, 0.0, -1.0);
 
-		Vec3 origin(bbox_centre - Vec3(diagonal * 1, 0, 0));
+		Vec3 origin(bbox_centre - Vec3(diagonal * 2, 0, 0));
 		Vec3 detector_position(bbox_centre + Vec3(diagonal * 0.6, 0, 0));
 
 		Vec3 direction((detector_position - origin));
@@ -905,9 +905,9 @@ TriangleMesh createBackground(const Vec3& anUpperBBoxCorner,
 		0, 2, 3,
 	};
 
-	TriangleMesh background_mesh(vertices, indices, text_coords);
-	Image cloud_texture("Bangor_Logo_A1.jpg" /*"cloud2.jpg"*/);
-	background_mesh.setTexture(cloud_texture);
+	TriangleMesh background_mesh(vertices, indices);
+	// Image cloud_texture("Bangor_Logo_A1.jpg" /*"cloud2.jpg"*/); // removing the texture from the background
+	// background_mesh.setTexture(cloud_texture);
 
 	return (background_mesh);
 }
