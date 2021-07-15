@@ -275,7 +275,7 @@ int main(int argc, char** argv)
 
 		Vec3 up(0.0, 0.0, -1.0);
 
-		Vec3 origin(bbox_centre - Vec3(diagonal * 2, 0, 0));
+		Vec3 origin(bbox_centre - Vec3(diagonal * 1, 0, 0));
 		Vec3 detector_position(bbox_centre + Vec3(diagonal * 0.6, 0, 0));
 
 		Vec3 direction((detector_position - origin));
@@ -297,6 +297,7 @@ int main(int argc, char** argv)
 		cout << "Initializing ray-tracer properties took: " << time_taken << " seconds" << endl << endl;
 
 		// Create a mesh that will go behing the scene (some kind of background)
+		// p_mesh_set.push_back(createBackground(upper_bbox_corner, lower_bbox_corner));
 		p_mesh_set.push_back(createBackground(upper_bbox_corner, lower_bbox_corner));
 
 		// Data for every thread

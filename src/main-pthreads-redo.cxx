@@ -118,6 +118,64 @@ using namespace std;
  * 
  * Using a class instead of a struct so we can work with references, as they need to be initialized by the constructor.
  */
+// class PThreadData{
+// 	// Thread information
+// 	// Using a class constructor to initialize the parameters to we can use references
+
+// 	private:
+// 		PThreadData(); // Private so we can't call the default instructor.
+// 	public:
+// 		// Initialising the values of this data class - Required when using references
+// 		PThreadData(Image& anOutputImage,
+// 					const vector<TriangleMesh>& aTriangleMeshSet,
+// 					const Vec3& aDetectorPosition,
+// 					const Vec3& aRayOrigin,
+// 					const Vec3& anUpVector,
+// 					const Vec3& aRightVector,
+// 					const Light& aLight):
+// 					m_output_image(anOutputImage),
+// 					m_triangle_mesh_set(aTriangleMeshSet),
+// 					m_detector_position(aDetectorPosition),
+// 					m_ray_origin(aRayOrigin),
+// 					m_up_vector(anUpVector),
+// 					m_right_vector(aRightVector),
+// 					m_light(aLight),
+// 					m_thread_int_id(-1),
+// 					m_start_pixel(-1),
+// 					m_end_pixel(-1){}
+
+// 		pthread_t m_thread_id;
+// 		unsigned int m_thread_int_id;
+
+// 		// Reference to variables needed in the render loop.
+// 		Image& m_output_image;
+// 		const vector<TriangleMesh>& m_triangle_mesh_set;
+// 		const Vec3& m_detector_position;
+// 		const Vec3& m_ray_origin;
+// 		const Vec3& m_up_vector;
+// 		const Vec3& m_right_vector;
+// 		const Light& m_light;
+
+// 		// Start and end point for data assigned to thread - Thread will work on start pixel through to end pixel
+// 		unsigned int m_start_pixel;
+// 		unsigned int m_end_pixel;
+// };
+
+/**
+ * Class for storing data required by threads.
+ * 
+ * Using a class instead of a struct so we can work with references, as they need to be initialized by the constructor.
+ */
+// Dont need typedef in c++
+struct RayTracerInfo
+{
+	Vec3 detector_position;
+	Vec3 origin;
+	Vec3 up;
+	Vec3 right;
+	Light light;
+};
+
 class PThreadData{
 	// Thread information
 	// Using a class constructor to initialize the parameters to we can use references
@@ -128,18 +186,10 @@ class PThreadData{
 		// Initialising the values of this data class - Required when using references
 		PThreadData(Image& anOutputImage,
 					const vector<TriangleMesh>& aTriangleMeshSet,
-					const Vec3& aDetectorPosition,
-					const Vec3& aRayOrigin,
-					const Vec3& anUpVector,
-					const Vec3& aRightVector,
-					const Light& aLight):
+					const RayTracerInfo& rayTracerInfo):
 					m_output_image(anOutputImage),
 					m_triangle_mesh_set(aTriangleMeshSet),
-					m_detector_position(aDetectorPosition),
-					m_ray_origin(aRayOrigin),
-					m_up_vector(anUpVector),
-					m_right_vector(aRightVector),
-					m_light(aLight),
+					m_ray_tracer_info(rayTracerInfo),
 					m_thread_int_id(-1),
 					m_start_pixel(-1),
 					m_end_pixel(-1){}
@@ -150,16 +200,14 @@ class PThreadData{
 		// Reference to variables needed in the render loop.
 		Image& m_output_image;
 		const vector<TriangleMesh>& m_triangle_mesh_set;
-		const Vec3& m_detector_position;
-		const Vec3& m_ray_origin;
-		const Vec3& m_up_vector;
-		const Vec3& m_right_vector;
-		const Light& m_light;
+		const RayTracerInfo& m_ray_tracer_info;
 
 		// Start and end point for data assigned to thread - Thread will work on start pixel through to end pixel
 		unsigned int m_start_pixel;
 		unsigned int m_end_pixel;
 };
+
+
 
 // Callback function for PThreads - a thread renders from pixel Ni to Nj, loads is distributed in main
 void* renderLoopCallBack(void* apData);
@@ -207,6 +255,24 @@ void getBBox(
 	Vec3& aLowerBBoxCorner
 );
 
+RayTracerInfo initialiseRayTracing(
+	vector<TriangleMesh>& aMeshSet,
+	const Vec3& anUpperBBoxCorner,
+	const Vec3& aLowerBBoxCorner,
+	const unsigned int& image_height,
+	const unsigned int& image_width,
+	Image& output_image,
+	const unsigned char r,
+	const unsigned char g,
+	const unsigned char b
+);
+
+void pthreadWorkLoadAllocation(
+	vector<PThreadData>& p_thread_data,
+	const unsigned int number_of_threads,
+	Image output_image
+);
+
 //******************************************************************************
 //  Constant global variables
 //******************************************************************************
@@ -252,7 +318,24 @@ int main(int argc, char** argv){
 		vector<TriangleMesh> p_mesh_set;
 		loadMeshes("./dragon.ply", p_mesh_set);
 
+		cout <<  "Retreiving scenes bbox" << endl;
 
+		// Which corner in a 3D object?
+		Vec3 lower_bbox_corner;
+		Vec3 upper_bbox_corner;
+
+		getBBox(p_mesh_set, upper_bbox_corner, lower_bbox_corner);
+
+		// getting bounding box of the object
+		// dont really get it. Gets the direction between the start anbd the 
+		// Initialise ray-tracer properties
+		Image output_image;
+		RayTracerInfo rayTracerInfo = initialiseRayTracing(p_mesh_set, upper_bbox_corner, lower_bbox_corner, image_height, image_width, output_image, r, g, b);
+
+		// Allocate work for Pthreads
+		// Need to change PThread data to accept RayTracerInfo
+		vector<PThreadData> p_thread_data(number_of_threads, PThreadData(output_image, p_mesh_set, rayTracerInfo));
+		// pthreadWorkLoadAllocation(p_thread_data, number_of_threads, );
 
 	} 
 	// Catch exceptions and error messages
@@ -465,6 +548,129 @@ void loadMeshes(const std::string& aFileName, vector<TriangleMesh>& aMeshSet){
 	}
 }
 
+// Gets the boudning box
+void getBBox(
+	const vector<TriangleMesh>& aMeshSet,
+	Vec3& anUpperBBoxCorner,
+	Vec3& aLowerBBoxCorner
+){
+	float inf = std::numeric_limits<float>::infinity();
+
+	aLowerBBoxCorner = Vec3(inf, inf, inf);
+	anUpperBBoxCorner = Vec3(-inf, -inf, -inf);
+
+	for(std::vector<TriangleMesh>::const_iterator ite = aMeshSet.begin(); ite != aMeshSet.end(); ++ite){
+		Vec3 mesh_lower_bbox_corner = ite->getLowerBBoxCorner();
+		Vec3 mesh_upper_bbox_corner = ite->getUpperBBoxCorner();
+
+		// Not entirely sure here
+		aLowerBBoxCorner[0] = std::min(aLowerBBoxCorner[0], mesh_lower_bbox_corner[0]);
+		aLowerBBoxCorner[1] = std::min(aLowerBBoxCorner[1], mesh_lower_bbox_corner[1]);
+		aLowerBBoxCorner[2] = std::min(aLowerBBoxCorner[2], mesh_lower_bbox_corner[2]);
+
+		anUpperBBoxCorner[0] = std::max(anUpperBBoxCorner[0], mesh_upper_bbox_corner[0]);
+		anUpperBBoxCorner[1] = std::max(anUpperBBoxCorner[1], mesh_upper_bbox_corner[1]);
+		anUpperBBoxCorner[2] = std::max(anUpperBBoxCorner[2], mesh_upper_bbox_corner[2]);
+	}
+}
+
+// Might be too many things going on in here, could pass it a struct instead?
+RayTracerInfo initialiseRayTracing(	
+	vector<TriangleMesh>& aMeshSet,
+	const Vec3& anUpperBBoxCorner,
+	const Vec3& aLowerBBoxCorner,
+	const unsigned int& image_height,
+	const unsigned int& image_width,
+	Image& output_image,
+	const unsigned char r,
+	const unsigned char g,
+	const unsigned char b){
+	
+	Vec3 range = anUpperBBoxCorner - aLowerBBoxCorner;
+	Vec3 bbox_centre = aLowerBBoxCorner + range / 2.0;
+
+
+	// Helps me visual the difference in each corner. Which is top, right and forward, etc
+	#ifndef NDEBUG
+		cout << bbox_centre.getX() << ", " << bbox_centre.getY() << ", " << bbox_centre.getZ() << endl;
+		cout << aLowerBBoxCorner.getX() << ", " << aLowerBBoxCorner.getY() << ", " << aLowerBBoxCorner.getZ() << endl;
+		cout << anUpperBBoxCorner.getX() << ", " << anUpperBBoxCorner.getY() << ", " << anUpperBBoxCorner.getZ() << endl;
+	#endif
+
+	float diagonal = range.getLength(); // Diagonal distance between the upper and lower corner
+
+	Vec3 up(0.0, 0.0, -1.0);
+
+	Vec3 origin(bbox_centre - Vec3(diagonal * 1, 0, 0));
+	Vec3 detector_position(bbox_centre + Vec3(diagonal * 0.6, 0, 0));
+
+	Vec3 direction((detector_position - origin));
+	direction.normalize();
+
+	output_image = Image(image_width, image_height, r, g, b);
+
+	Vec3 light_position = origin;
+	Vec3 light_direction = bbox_centre - light_position;
+	light_direction.normalise();
+	Light light(g_white, light_direction, light_position);
+
+	direction.normalise();
+	Vec3 right(direction.crossProduct(up));	
+
+	// Creates mesh that will go behind the scene
+	aMeshSet.push_back(createBackground(anUpperBBoxCorner, aLowerBBoxCorner));
+
+	RayTracerInfo info {
+		detector_position,
+		origin,
+		up,
+		right,
+		light
+	};
+
+	return info;
+}
+
+// Might be obsolete now that we're going to create a view plane instead
+TriangleMesh createBackground(
+	const Vec3& anUpperBBoxCorner,
+	const Vec3& aLowerBBoxCorner
+){
+	Vec3 range = anUpperBBoxCorner - aLowerBBoxCorner;
+
+	// four vertex positions? for each corner of the detector / background?
+	std::vector<float> vertices = {
+		anUpperBBoxCorner[0] + range[0] * 0.1f, aLowerBBoxCorner[1] - range[1] * 0.5f, aLowerBBoxCorner[2] - range[2] * 0.5f,
+		anUpperBBoxCorner[0] + range[0] * 0.1f, anUpperBBoxCorner[1] + range[1] * 0.5f, aLowerBBoxCorner[2] - range[2] * 0.5f,
+		anUpperBBoxCorner[0] + range[0] * 0.1f, anUpperBBoxCorner[1] + range[1] * 0.5f, anUpperBBoxCorner[2] + range[2] * 0.5f,
+		anUpperBBoxCorner[0] + range[0] * 0.1f, aLowerBBoxCorner[1] - range[1] * 0.5f, anUpperBBoxCorner[2] + range[2] * 0.5f,
+	};
+
+	std::vector<unsigned int> indices = {
+		0, 1, 2,
+		0, 2, 3
+	};
+
+	TriangleMesh background_mesh(vertices, indices);
+	return (background_mesh);
+}
+
+void pthreadWorkLoadAllocation(
+	vector<TriangleMesh>& p_thread_data,
+	const unsigned int number_of_threads,
+	Image output_image
+){
+	cout << "Allocating PThread data" << endl;
+	int last_element = -1;
+	unsigned int total_pixels = output_image.getWidth() * output_image.getHeight();
+	unsigned int pixels_per_thread = total_pixels / number_of_threads;
+	unsigned int remainder = total_pixels % number_of_threads;
+
+	cout << "Number of cells per thread (1D array) " << pixels_per_thread << endl << endl;
+}
+
 // Changes i've made to this
 // Removed material setting code - dont need it in this version
 // Read and understood how meshes are loaded and how geometry is built - this will help when the time comes in Vulkan
+// Used debud printing to visualise stuff. Hard to picture it in my brain
+// They work out the bounding box by setting a point with the biggest or lower x, y, z value out of all the points in all the triangles
