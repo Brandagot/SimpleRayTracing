@@ -166,7 +166,9 @@ using namespace std;
  * 
  * Using a class instead of a struct so we can work with references, as they need to be initialized by the constructor.
  */
+
 // Dont need typedef in c++
+// Decided to cache the bbox corners for each thread to access later
 struct RayTracerInfo
 {
 	Vec3 detector_position;
@@ -174,6 +176,9 @@ struct RayTracerInfo
 	Vec3 up;
 	Vec3 right;
 	Light light;
+	Vec3 upper_bbox_corner;
+	Vec3 lower_bbox_corner;
+	Vec3 range;
 };
 
 class PThreadData{
@@ -259,8 +264,8 @@ RayTracerInfo initialiseRayTracing(
 	vector<TriangleMesh>& aMeshSet,
 	const Vec3& anUpperBBoxCorner,
 	const Vec3& aLowerBBoxCorner,
-	const unsigned int& image_height,
-	const unsigned int& image_width,
+	const unsigned int image_height,
+	const unsigned int image_width,
 	Image& output_image,
 	const unsigned char r,
 	const unsigned char g,
@@ -269,8 +274,8 @@ RayTracerInfo initialiseRayTracing(
 
 void pthreadWorkLoadAllocation(
 	vector<PThreadData>& p_thread_data,
-	const unsigned int number_of_threads,
-	Image output_image
+	unsigned int number_of_threads,
+	Image& output_image
 );
 
 //******************************************************************************
@@ -313,13 +318,13 @@ int main(int argc, char** argv){
 			r, g, b, number_of_threads);
 
 		// Loading polygon meshes
-		cout << "Loading polygon meshes" << endl;
+		cout << "Loading polygon meshes" << endl << endl;
 		
 		vector<TriangleMesh> p_mesh_set;
 		loadMeshes("./dragon.ply", p_mesh_set);
 
 		cout <<  "Retreiving scenes bbox" << endl;
-
+ 
 		// Which corner in a 3D object?
 		Vec3 lower_bbox_corner;
 		Vec3 upper_bbox_corner;
@@ -335,7 +340,22 @@ int main(int argc, char** argv){
 		// Allocate work for Pthreads
 		// Need to change PThread data to accept RayTracerInfo
 		vector<PThreadData> p_thread_data(number_of_threads, PThreadData(output_image, p_mesh_set, rayTracerInfo));
-		// pthreadWorkLoadAllocation(p_thread_data, number_of_threads, );
+		pthreadWorkLoadAllocation(p_thread_data, number_of_threads, output_image);
+		
+		cout << "Creating and Executing threads" << endl << endl;
+
+		// Create threads, executes callback on each thread
+		for(int i = 0; i < number_of_threads; i++){
+			// Need to create the render loop callback - the render loop is going to be reworked
+			pthread_create(&p_thread_data[i].m_thread_id, NULL, renderLoopCallBack, &p_thread_data[i]);
+		}
+
+		// Join threads, waiting for them all to finish
+		for(int i = 0; i < number_of_threads; i++){
+			pthread_join(p_thread_data[i].m_thread_id, NULL);
+		}
+
+		// output_image.saveJPEGFile(output_file_name);
 
 	} 
 	// Catch exceptions and error messages
@@ -579,8 +599,8 @@ RayTracerInfo initialiseRayTracing(
 	vector<TriangleMesh>& aMeshSet,
 	const Vec3& anUpperBBoxCorner,
 	const Vec3& aLowerBBoxCorner,
-	const unsigned int& image_height,
-	const unsigned int& image_width,
+	const unsigned int image_height,
+	const unsigned int image_width,
 	Image& output_image,
 	const unsigned char r,
 	const unsigned char g,
@@ -625,7 +645,10 @@ RayTracerInfo initialiseRayTracing(
 		origin,
 		up,
 		right,
-		light
+		light,
+		anUpperBBoxCorner,
+		aLowerBBoxCorner,
+		range
 	};
 
 	return info;
@@ -655,18 +678,60 @@ TriangleMesh createBackground(
 	return (background_mesh);
 }
 
+//Only ints and smaller objects should be passed by value, because it's cheaper to copy them than to take the dereferencing hit within the function.
 void pthreadWorkLoadAllocation(
-	vector<TriangleMesh>& p_thread_data,
-	const unsigned int number_of_threads,
-	Image output_image
+	vector<PThreadData>& p_thread_data,
+	unsigned int number_of_threads,
+	Image& output_image
 ){
-	cout << "Allocating PThread data" << endl;
+	cout << "Allocating PThread data" << endl << endl;
 	int last_element = -1;
 	unsigned int total_pixels = output_image.getWidth() * output_image.getHeight();
 	unsigned int pixels_per_thread = total_pixels / number_of_threads;
 	unsigned int remainder = total_pixels % number_of_threads;
 
 	cout << "Number of cells per thread (1D array) " << pixels_per_thread << endl << endl;
+
+	for(int i = 0; i < number_of_threads; i++){
+		// Setting thread ID, and pixel range to perform work on
+		p_thread_data[i].m_thread_int_id = i;
+		p_thread_data[i].m_start_pixel = ++last_element;
+		p_thread_data[i].m_end_pixel = last_element + pixels_per_thread;
+
+		// Adding a pixel from the remainders to the current thread
+		if(remainder > 0){
+			p_thread_data[i].m_end_pixel++;
+			--remainder;
+		}
+
+		last_element = p_thread_data[i].m_end_pixel;
+		
+		cout << "Thread: " << p_thread_data[i].m_thread_int_id << endl;
+	}
+
+	cout << endl;
+}
+
+void* renderLoopCallBack(void* apData){
+	PThreadData* p_thread_data = static_cast<PThreadData*>(apData);
+	// cout << p_thread_data->m_ray_tracer_info.upper_bbox_corner << endl;
+	// cout << p_thread_data->m_ray_tracer_info.range << endl;
+
+	float res1 = p_thread_data->m_ray_tracer_info.range[2] / p_thread_data->m_output_image.getWidth();
+	float res2 = p_thread_data->m_ray_tracer_info.range[1] / p_thread_data->m_output_image.getHeight();
+	float pixel_spacing[] = {2 * std::max(res1, res2), 2 * std::max(res1, res2)}; // ?
+
+	// Process everyrow
+	float inf  = std::numeric_limits<float>::infinity();
+
+	// Need to replace this with an L-buffer 
+	std::vector<float> z_buffer(p_thread_data->m_output_image.getWidth() * p_thread_data->m_output_image.getHeight(), inf);
+
+	// Process all allocated pixels
+	for(int pixel = p_thread_data->m_start_pixel; pixel <= p_thread_data->m_end_pixel; ++pixel){
+
+	}
+
 }
 
 // Changes i've made to this
@@ -674,3 +739,4 @@ void pthreadWorkLoadAllocation(
 // Read and understood how meshes are loaded and how geometry is built - this will help when the time comes in Vulkan
 // Used debud printing to visualise stuff. Hard to picture it in my brain
 // They work out the bounding box by setting a point with the biggest or lower x, y, z value out of all the points in all the triangles
+// Store ray-tracing info in a strcut for threads to access
