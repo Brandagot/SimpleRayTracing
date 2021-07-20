@@ -22,4 +22,4 @@ At the moment, I have made some modifications to remove the dragon and changed t
 
 Progress made, now using L-buffer to produce the following image.
 
-![](/bin-debug-amd/out/attenuation_model_2048x2048_lbuffer.jpeg)
+![](out/attenuation_model_2048x2048_lbuffer.jpeg)
