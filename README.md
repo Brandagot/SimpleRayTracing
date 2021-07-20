@@ -19,3 +19,7 @@ This section demonstrates some images created during testing.
 At the moment, I have made some modifications to remove the dragon and changed the way distance is used to set the shade. The x-ray source is now in the same position as the source.
 
 ![](out/x-ray-10-threads-1512x1512-no_dragon.jpg)
+
+Progress made, now using L-buffer to produce the following image.
+
+![](bin-debug-amd/out/attenuation_model_2048x2048_lbuffer.jpeg)
