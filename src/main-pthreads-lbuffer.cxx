@@ -118,54 +118,6 @@ using namespace std;
  * 
  * Using a class instead of a struct so we can work with references, as they need to be initialized by the constructor.
  */
-// class PThreadData{
-// 	// Thread information
-// 	// Using a class constructor to initialize the parameters to we can use references
-
-// 	private:
-// 		PThreadData(); // Private so we can't call the default instructor.
-// 	public:
-// 		// Initialising the values of this data class - Required when using references
-// 		PThreadData(Image& anOutputImage,
-// 					const vector<TriangleMesh>& aTriangleMeshSet,
-// 					const Vec3& aDetectorPosition,
-// 					const Vec3& aRayOrigin,
-// 					const Vec3& anUpVector,
-// 					const Vec3& aRightVector,
-// 					const Light& aLight):
-// 					m_output_image(anOutputImage),
-// 					m_triangle_mesh_set(aTriangleMeshSet),
-// 					m_detector_position(aDetectorPosition),
-// 					m_ray_origin(aRayOrigin),
-// 					m_up_vector(anUpVector),
-// 					m_right_vector(aRightVector),
-// 					m_light(aLight),
-// 					m_thread_int_id(-1),
-// 					m_start_pixel(-1),
-// 					m_end_pixel(-1){}
-
-// 		pthread_t m_thread_id;
-// 		unsigned int m_thread_int_id;
-
-// 		// Reference to variables needed in the render loop.
-// 		Image& m_output_image;
-// 		const vector<TriangleMesh>& m_triangle_mesh_set;
-// 		const Vec3& m_detector_position;
-// 		const Vec3& m_ray_origin;
-// 		const Vec3& m_up_vector;
-// 		const Vec3& m_right_vector;
-// 		const Light& m_light;
-
-// 		// Start and end point for data assigned to thread - Thread will work on start pixel through to end pixel
-// 		unsigned int m_start_pixel;
-// 		unsigned int m_end_pixel;
-// };
-
-/**
- * Class for storing data required by threads.
- * 
- * Using a class instead of a struct so we can work with references, as they need to be initialized by the constructor.
- */
 
 // Dont need typedef in c++
 // Decided to cache the bbox corners for each thread to access later
@@ -285,6 +237,8 @@ const Vec3 g_blue(0, 0, 1);
 
 const Vec3 g_background_color = g_black; // But the background behind the viewplane appreas more grey, so im not sure aout this
 
+std::vector<float> L_buffer; // dont need to lock this, threads only access data based on pixels they have been assigned 
+
 int main(int argc, char** argv){
 	try{
 		// defualt output file
@@ -334,6 +288,8 @@ int main(int argc, char** argv){
 		pthreadWorkLoadAllocation(p_thread_data, number_of_threads, output_image);
 		
 		cout << "Creating and Executing threads" << endl << endl;
+
+    	L_buffer = std::vector<float>(output_image.getWidth() * output_image.getHeight(), 0.0f);
 
 		// Create threads, executes callback on each thread
 		for(int i = 0; i < number_of_threads; i++){
@@ -708,6 +664,7 @@ void* renderLoopCallBack(void* apData){
 	PThreadData* p_thread_data = static_cast<PThreadData*>(apData);
 	// cout << p_thread_data->m_ray_tracer_info.upper_bbox_corner << endl;
 	// cout << p_thread_data->m_ray_tracer_info.range << endl;
+    // maybe a local L buffer instead?
 
 	float res1 = p_thread_data->m_ray_tracer_info.range[2] / p_thread_data->m_output_image.getWidth();
 	float res2 = p_thread_data->m_ray_tracer_info.range[1] / p_thread_data->m_output_image.getHeight();
@@ -717,8 +674,7 @@ void* renderLoopCallBack(void* apData){
 	float inf  = std::numeric_limits<float>::infinity();
 
 	// Need to replace this with an L-buffer 
-	std::vector<float> z_buffer(p_thread_data->m_output_image.getWidth() * p_thread_data->m_output_image.getHeight(), inf);
-	// std::vector<float> L_buffer(p_thread_data->m_output_image.getWidth() * p_thread_data->m_output_image.getHeight(), inf);
+    // This needs to go outside of this callback, to be shared with other threads
 
 	// Process all allocated pixels
 	for(int pixel = p_thread_data->m_start_pixel; pixel <= p_thread_data->m_end_pixel; ++pixel){
@@ -738,10 +694,8 @@ void* renderLoopCallBack(void* apData){
 		const TriangleMesh* p_intersected_object = 0;
 		const Triangle* p_intersected_triangle = 0;
 
-		std::vector<float> intersect_points;
-		intersect_points.reserve(10); // can change
-
 		// Process each mesh
+        // Here is were i need to add the L buffer stuff
 		for(std::vector<TriangleMesh>::const_iterator mesh_ite = p_thread_data->m_triangle_mesh_set.begin();
 				mesh_ite != p_thread_data->m_triangle_mesh_set.end();
 				++mesh_ite){
@@ -760,77 +714,95 @@ void* renderLoopCallBack(void* apData){
 					// checks if the intersect is with the dragon
 					// &*?? lol
 					if(intersect && &*mesh_ite == &p_thread_data->m_triangle_mesh_set[0] && t > 0.0000001){
-						intersect_points.push_back(t);
-						p_intersected_object = &(*mesh_ite);
-						p_intersected_triangle = &triangle;
+                        float dotProduct = direction.dotProduct(triangle.getNormal());
+                        L_buffer[row * p_thread_data->m_output_image.getWidth() + col - 1] += (dotProduct < 0) ? -t : t; // maybe print and compare distances with the over version? - adding are removing distance based on dotproduct
 					}
 				}
-
-				intersect_points.shrink_to_fit(); // this doesnt effect time too much
 			}
 		}
 		// cout << intersect_points << endl;
 
-		// Sets the distance values for all the pixels
-		float distance = 0;
-		if(p_intersected_object && p_intersected_triangle){
+		// // Sets the distance values for all the pixels
+		// float distance = 0;
+		// if(p_intersected_object && p_intersected_triangle){
 
-			if(intersect_points.size() % 2 == 0){
-				sort(intersect_points.begin(), intersect_points.end());
+		// 	if(intersect_points.size() % 2 == 0){
+		// 		sort(intersect_points.begin(), intersect_points.end());
 				
-				for(int i = 0; i < intersect_points.size(); i+=2){
-					distance += intersect_points[i + 1] - intersect_points[i];
-				}
-			} else{
-				cout << "it dont" << endl;
-				// Not sure how to deal with artifact
-				// distance = z_buffer[row * p_thread_data->m_output_image.getWidth() + col - 1];
-			}
+		// 		for(int i = 0; i < intersect_points.size(); i+=2){
+		// 			distance += intersect_points[i + 1] - intersect_points[i];
+		// 		}
+		// 	} else{
+		// 		cout << "it dont" << endl;
+		// 		// Not sure how to deal with artifact
+		// 		// distance = z_buffer[row * p_thread_data->m_output_image.getWidth() + col - 1];
+		// 	}
 
-			// some of these values be assigned, need to give them a default color
-			// Do I even need a buffer? dont it all per pixel in one loop means probably not
-			z_buffer[row * p_thread_data->m_output_image.getWidth() + col] = distance;
-		}
+		// 	// some of these values be assigned, need to give them a default color
+		// 	// Do I even need a buffer? dont it all per pixel in one loop means probably not
+		// 	// z_buffer[row * p_thread_data->m_output_image.getWidth() + col] = distance;
+		// }
 
 		// Visualisation the pixel
 
-		Vec3 color(255, 255, 255); // Default white pixel
-		unsigned char r = 0;
-		unsigned char g = 0;
-		unsigned char b = 0;
+		// Vec3 color(255, 255, 255); // Default white pixel
+		// unsigned char r = 0;
+		// unsigned char g = 0;
+		// unsigned char b = 0;
 
-		// Abitrary value to clamp distance
-		// keeping the zeros because they represent the min values for the clamping
+		// // Abitrary value to clamp distance
+		// // keeping the zeros because they represent the min values for the clamping
 
-		distance = distance / 10;
-		// cout << distance << endl;
-		// distance = (distance - 0) / 50 * (1 - 0) + 0;
-		// cout << distance << endl;
+		// distance = distance / 10;
+		// // cout << distance << endl;
+		// // distance = (distance - 0) / 50 * (1 - 0) + 0;
+		// // cout << distance << endl;
 
-		// Divide distance by 10 to cm - the distance is considered to be in mm
+		// // Divide distance by 10 to cm - the distance is considered to be in mm
 
-		// 80 keV input
-		// use 80.000 for kev output
-		// 0 smallest output
-		// I incident output
+		// // 80 keV input
+		// // use 80.000 for kev output
+		// // 0 smallest output
+		// // I incident output
 
-		// 0.3971 is the mju of bone - lin attenuation coefficient
-		// add this to variables later
-		float photonOut = 80.000f * exp(-(0.3971f * distance));
-		photonOut = (photonOut - 0) / (80.000f - 0); // turn this into multiplication
+		// // 0.3971 is the mju of bone - lin attenuation coefficient
+		// // add this to variables later
+		// float photonOut = 80.000f * exp(-(0.3971f * distance));
+		// photonOut = (photonOut - 0) / (80.000f - 0); // turn this into multiplication
 
-		// cout << photonOut << endl;
+		// // cout << photonOut << endl;
 
-		color[0] *= photonOut;
-		color[1] *= photonOut;
-		color[2] *= photonOut;
+		// color[0] *= photonOut;
+		// color[1] *= photonOut;
+		// color[2] *= photonOut;
 
 
-		// printf("%u, %u, %u\n", r, g, b);
-		// cout << col << ", " << row << endl << endl; 
+		// // printf("%u, %u, %u\n", r, g, b);
+		// // cout << col << ", " << row << endl << endl; 
 
-		p_thread_data->m_output_image.setPixel(col, row, color[0], color[1], color[2]);
+		// p_thread_data->m_output_image.setPixel(col, row, color[0], color[1], color[2]);
 	}
+
+    // Second pass for visualisation - could handle this totally different now that the L buffer is stored outside of the threads
+    for(int pixel = p_thread_data->m_start_pixel; pixel <= p_thread_data->m_end_pixel; ++pixel){
+        Vec3 color(255, 255, 255); // default color
+
+		// x,y of pixel in the image
+		unsigned int row = pixel / p_thread_data->m_output_image.getWidth();
+		unsigned int col = pixel % p_thread_data->m_output_image.getWidth();
+
+        float distance = L_buffer[row * p_thread_data->m_output_image.getWidth() + col] * 0.1; // converting the distance to cm
+
+        float photonOut = 80.000f * exp(-(0.3971f * distance));
+        photonOut = photonOut / 80.000f; // scaling it
+
+        color[0] *= photonOut;
+        color[1] *= photonOut;
+        color[2] *= photonOut;
+
+        p_thread_data->m_output_image.setPixel(col, row, color[0], color[1], color[2]);
+    }
+
 }
 
 // Changes i've made to this
@@ -844,3 +816,6 @@ void* renderLoopCallBack(void* apData){
 
 // a 2048 x 2048 image with 6 threads took 2238.94 seconds to execute / 37m18.992s overall using the old method
 // takes 23 on this new version, and uses more of the image
+// Going to see if it is considerably shorter using the Lbuffer alg or not
+// Now implemented to Lbuffer algo, not sure how efficient it is, seeing as each thread is creating an L-buffer - using a shit ton of memory
+// Benefits are negligible on CPU - L buffer coomes in when GPU acceleration is available

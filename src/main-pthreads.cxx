@@ -624,7 +624,12 @@ void* renderLoopCallBack(void* apData)
 			}
 
 			// Update the pixel value
-			
+			// printf("%u, %u, %u", r, g, b);
+
+			// cout << col << ", " << row << endl; 
+			// if(row == 256){
+			// 	cout << "shit" << endl;
+			// }
 			p_thread_data->m_output_image.setPixel(col, row, r, g, b);
 		}
 	}
