@@ -3,26 +3,27 @@
 
 
 /**
-********************************************************************************
-*
-*   @file       Image.h
-*
-*   @brief      Class to manage 2D RGB images.
-*
-*   @version    1.0
-*
-*   @date       06/10/2020
-*
-*   @author     Dr Franck P. Vidal
-*
-********************************************************************************
-*/
+ ********************************************************************************
+ *
+ *   @file       Image.h
+ *
+ *   @brief      Class to manage 2D greyscale images in float.
+ *
+ *   @version    1.0
+ *
+ *   @date       12/08/2021
+ *
+ *   @author     Dr Franck P. Vidal
+ *
+ ********************************************************************************
+ */
 
 
 //******************************************************************************
 //  Include
 //******************************************************************************
 #include <string>
+#include <vector>
 
 
 //==============================================================================
@@ -52,24 +53,6 @@ public:
 
 
     //--------------------------------------------------------------------------
-    /// Constructor using a JPEG file name
-    /*
-    *   @param aFileName    the name of the JPEG file
-    */
-    //--------------------------------------------------------------------------
-    Image(const char* aFileName);
-
-
-    //--------------------------------------------------------------------------
-    /// Constructor using a JPEG file name
-    /*
-    *   @param aFileName    the name of the JPEG file
-    */
-    //--------------------------------------------------------------------------
-    Image(const std::string& aFileName);
-
-
-    //--------------------------------------------------------------------------
     /// Create a blank image
     /*
      *   @param aWidth   the image width (in number of pixels)
@@ -78,9 +61,7 @@ public:
     //--------------------------------------------------------------------------
     Image(unsigned int aWidth,
     		unsigned int aHeight,
-    		unsigned char r = 0,
-			unsigned char g = 0,
-			unsigned char b = 0);
+    		float aPixelValue = 0);
 
 
     //--------------------------------------------------------------------------
@@ -105,21 +86,14 @@ public:
 
 
     //--------------------------------------------------------------------------
-    /// Load an image from a JPEG file
+    /// Save the current image into a JPEG file
     /*
-    *   @param aFileName    the name of the JPEG file
-    */
+     *   @param aFileName    the name of the JPEG file
+     */
     //--------------------------------------------------------------------------
-    void loadJPEGFile(const char* aFileName);
-
-
-    //--------------------------------------------------------------------------
-    /// Load an image from a JPEG file
-    /*
-    *   @param aFileName    the name of the JPEG file
-    */
-    //--------------------------------------------------------------------------
-    void loadJPEGFile(const std::string& aFileName);
+    void saveJPEGFile(const char* aFileName,
+        float vmin = 0.0,
+        float vmax = 1.0);
 
 
     //--------------------------------------------------------------------------
@@ -128,7 +102,9 @@ public:
      *   @param aFileName    the name of the JPEG file
      */
     //--------------------------------------------------------------------------
-    void saveJPEGFile(const char* aFileName);
+    void saveJPEGFile(const std::string& aFileName,
+        float vmin = 0.0,
+        float vmax = 1.0);
 
 
     //--------------------------------------------------------------------------
@@ -137,7 +113,9 @@ public:
      *   @param aFileName    the name of the JPEG file
      */
     //--------------------------------------------------------------------------
-    void saveJPEGFile(const std::string& aFileName);
+    void saveTGAFile(const char* aFileName,
+        float vmin = 0.0,
+        float vmax = 1.0);
 
 
     //--------------------------------------------------------------------------
@@ -146,16 +124,18 @@ public:
      *   @param aFileName    the name of the JPEG file
      */
     //--------------------------------------------------------------------------
-    void saveTGAFile(const char* aFileName);
+    void saveTGAFile(const std::string& aFileName,
+        float vmin = 0.0,
+        float vmax = 1.0);
 
 
     //--------------------------------------------------------------------------
-    /// Save the current image into a JPEG file
+    /// Save the current image into a text file
     /*
      *   @param aFileName    the name of the JPEG file
      */
     //--------------------------------------------------------------------------
-    void saveTGAFile(const std::string& aFileName);
+    void saveTextFile(const std::string& aFileName);
 
 
     //--------------------------------------------------------------------------
@@ -192,21 +172,21 @@ public:
     *   @return the raw pixel values
     */
     //--------------------------------------------------------------------------
-    unsigned char* getData() const;
+    float* getData() const;
 
 
     void setPixel(unsigned int i,
                   unsigned int j,
-                  unsigned char r,
-                  unsigned char g,
-                  unsigned char b);
+                  float aPixelValue);
 
 
     void getPixel(unsigned int i,
                   unsigned int j,
-                  unsigned char& r,
-                  unsigned char& g,
-                  unsigned char& b) const;
+                  float& aPixelValue) const;
+                  
+                  
+    std::vector<unsigned char> applyLUT(float vmin, float vmax);
+
 
 //******************************************************************************
 protected:
@@ -218,13 +198,11 @@ protected:
     */
     //--------------------------------------------------------------------------
     void setSize(unsigned int aWidth, unsigned int aHeight,
-    		unsigned char r = 0,
-			unsigned char g = 0,
-			unsigned char b = 0);
+    		float aPixelValue = 0);
 
 
     /// The pixel data
-    unsigned char*         m_p_pixel_data;
+    float*         m_p_pixel_data;
 
 
     /// The image width (in number of pixels)

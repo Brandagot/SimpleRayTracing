@@ -1,0 +1,2 @@
+CPU,Parallelisation,Number of threads,Number of nodes,Compiler,Image size,Runtime in sec
+AMD Ryzen 5 2600 Six-Core Processor,None,0,1,gcc (SUSE Linux) 10.3.0,1024x1024,1634.47

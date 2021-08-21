@@ -3,11 +3,11 @@
  *
  *   @file       Image.cxx
  *
- *   @brief      Class to manage 2D RGB images.
+ *   @brief      Class to manage 2D greyscale images in float.
  *
  *   @version    1.0
  *
- *   @date       06/10/2020
+ *   @date       12/08/2021
  *
  *   @author     Dr Franck P. Vidal
  *
@@ -19,9 +19,11 @@
 //  Include
 //******************************************************************************
 #include <iostream>
+#include <fstream>
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
+#include <vector>
 #include <stdio.h>
 #include <jerror.h>
 #include <jpeglib.h>
@@ -29,6 +31,7 @@
 #ifndef __Image_h
 #include "Image.h"
 #endif
+
 
 //----------------------------------------------------------
 Image::Image(const Image& anImage):
@@ -42,10 +45,10 @@ Image::Image(const Image& anImage):
     if (m_width && m_height && anImage.m_p_pixel_data)
     {
         // Allocate memory
-        m_p_pixel_data = new unsigned char[3 * m_width * m_height];
+        m_p_pixel_data = new float[m_width * m_height];
 
         // Copy the data
-        memcpy(m_p_pixel_data, anImage.m_p_pixel_data, sizeof(unsigned char) * 3 * m_width * m_height);
+        memcpy(m_p_pixel_data, anImage.m_p_pixel_data, sizeof(float) * m_width * m_height);
     }
 }
 
@@ -66,7 +69,7 @@ Image& Image::operator=(const Image& anImage)
         // Copy the data
         memcpy(m_p_pixel_data,
                 anImage.m_p_pixel_data,
-                sizeof(unsigned char) * 3 * anImage.m_width * anImage.m_height);
+                sizeof(float) * anImage.m_width * anImage.m_height);
     }
 
     // Copy the image properties
@@ -78,97 +81,9 @@ Image& Image::operator=(const Image& anImage)
 }
 
 
-//---------------------------------------------
-void Image::loadJPEGFile(const char* aFileName)
-//---------------------------------------------
-{
-    // Allocate and initialize a JPEG decompression object
-    struct jpeg_decompress_struct cinfo;
-    struct jpeg_error_mgr jerr;
-    cinfo.err = jpeg_std_error(&jerr);
-    jpeg_create_decompress(&cinfo);
-
-    // Specify the source of the compressed data (eg, a file)
-    FILE* p_input_file(fopen(aFileName, "rb"));
-    if (!p_input_file)
-    {
-        std::stringstream error_message;
-        error_message << "Cannot open the file " << aFileName << ", in File " << __FILE__ <<
-            ", in Function " << __FUNCTION__ <<
-            ", at Line " << __LINE__;
-
-        throw std::runtime_error(error_message.str());
-    }
-    jpeg_stdio_src(&cinfo, p_input_file);
-
-    // Call jpeg_read_header() to obtain image info
-    if (!JPEG_HEADER_OK == jpeg_read_header(&cinfo, TRUE))
-    {
-        std::string error_message;
-        error_message += "Cannot read file \"";
-        error_message += aFileName;
-        error_message += "\".";
-
-        throw error_message;
-    }
-
-    // Set parameters for decompression
-/*    cinfo.dct_method = JDCT_IFAST;
-    cinfo.do_fancy_upsampling = FALSE;
-    cinfo.two_pass_quantize = FALSE;
-    cinfo.dither_mode = JDITHER_ORDERED;
-    cinfo.scale_num = 1;
-    cinfo.scale_denom = 8;
-    */
-    // Start decompression
-    jpeg_start_decompress(&cinfo);
-
-    // Save the size of the image
-    unsigned int width(cinfo.output_width);
-    unsigned int height(cinfo.output_height);
-    setSize(width, height);
-
-    // Decompress data
-    JSAMPROW row_pointer[1];        // pointer to a single row
-    int row_stride;                 // physical row width in buffer
-
-    if (cinfo.out_color_space == JCS_RGB)
-    {
-        row_stride = m_width * 3;   // JSAMPLEs per row in image_buffer
-    }
-    else if (cinfo.out_color_space == JCS_GRAYSCALE)
-    {
-        row_stride = m_width;   // JSAMPLEs per row in image_buffer
-    }
-    // Unknown colour space
-    else
-    {
-        std::stringstream error_message;
-        error_message << " in File " << __FILE__ <<
-            ", in Function " << __FUNCTION__ <<
-            ", at Line " << __LINE__;
-
-        throw std::runtime_error(error_message.str());
-    }
-
-    while (cinfo.output_scanline < cinfo.output_height)
-    {
-        row_pointer[0] = & m_p_pixel_data[cinfo.output_scanline * row_stride];
-        jpeg_read_scanlines(&cinfo, row_pointer, 1);
-    }
-
-    // Finish decompression
-    jpeg_finish_decompress(&cinfo);
-
-    // Release the JPEG decompression object
-    jpeg_destroy_decompress(&cinfo);
-}
-
-
-
-//---------------------------------------------
-void Image::saveJPEGFile(const char* aFileName)
-//---------------------------------------------
+//---------------------------------------------------------------------
+void Image::saveJPEGFile(const char* aFileName, float vmin, float vmax)
+//---------------------------------------------------------------------
 {
 
     // Allocate and initialize a JPEG compression object
@@ -213,8 +128,11 @@ void Image::saveJPEGFile(const char* aFileName)
 
     row_stride = m_width * 3;   // JSAMPLEs per row in image_buffer
 
+    // Get the data in UCHAR
+    std::vector<unsigned char> p_pixel_data = applyLUT(vmin, vmax);
+
     while (cinfo.next_scanline < cinfo.image_height) {
-        row_pointer[0] = & m_p_pixel_data[cinfo.next_scanline * row_stride];
+        row_pointer[0] = & p_pixel_data[cinfo.next_scanline * row_stride];
         jpeg_write_scanlines(&cinfo, row_pointer, 1);
     }
 
@@ -226,9 +144,9 @@ void Image::saveJPEGFile(const char* aFileName)
 }
 
 
-//---------------------------------------------
-void Image::saveTGAFile(const char* aFileName)
-//---------------------------------------------
+//--------------------------------------------------------------------
+void Image::saveTGAFile(const char* aFileName, float vmin, float vmax)
+//--------------------------------------------------------------------
 {
     // Specify the destination for the compressed data (eg, a file)
     FILE* p_output_file(fopen(aFileName, "wb"));
@@ -260,9 +178,12 @@ void Image::saveTGAFile(const char* aFileName)
   	putc((m_height >> 8)  & 0xFF, p_output_file);
   	putc(24, p_output_file);                        /* 24 bit bitmap */
 
+    // Get the data in UCHAR
+    std::vector<unsigned char> p_pixel_data = applyLUT(vmin, vmax);
+    
   	for (int row = 0; row < m_height; ++row)
   	{
-          unsigned char* row_pointer = & m_p_pixel_data[m_width * (m_height - 1) * 3 - row * m_width * 3];
+          unsigned char* row_pointer = & p_pixel_data[m_width * (m_height - 1) * 3 - row * m_width * 3];
 
           for (int col = 0; col < m_width; ++col)
   		{
@@ -285,12 +206,45 @@ void Image::saveTGAFile(const char* aFileName)
 }
 
 
+//---------------------------------------------
+void Image::saveTextFile(const std::string& aFileName)
+//---------------------------------------------
+{
+    // Specify the destination for the compressed data (eg, a file)
+    std::ofstream p_output_file(aFileName);
+    if (!p_output_file.is_open())
+    {
+        std::stringstream error_message;
+        error_message << "Cannot create the file " << aFileName << ", in File " << __FILE__ <<
+            ", in Function " << __FUNCTION__ <<
+            ", at Line " << __LINE__;
+
+        throw std::runtime_error(error_message.str());
+    }
+
+  	for (int row = 0; row < m_height; ++row)
+  	{
+        for (int col = 0; col < m_width; ++col)
+  		{
+
+            if(m_p_pixel_data[row * m_width + col] > 80.0f || m_p_pixel_data[row * m_width + col] < 1.0f){
+                p_output_file << m_p_pixel_data[row * m_width + col - 1]; // TEMP
+            } else {
+                p_output_file << m_p_pixel_data[row * m_width + col];
+            }
+
+  		    if (col < m_width - 1) p_output_file <<  "\t";
+  		}
+  		
+	    if (row < m_height - 1) p_output_file <<  std::endl;
+  	}
+}
+
+
 //---------------------------------------
 void Image::setSize(unsigned int aWidth,
 		            unsigned int aHeight,
-                    unsigned char r,
-                    unsigned char g,
-                    unsigned char b)
+                    float aPixelValue)
 //---------------------------------------
 {
     // The image size has changed
@@ -304,13 +258,11 @@ void Image::setSize(unsigned int aWidth,
         // The new image is not empty
         if (m_width && m_height)
         {
-            m_p_pixel_data = new unsigned char[3 * m_width * m_height];
+            m_p_pixel_data = new float[m_width * m_height];
 
             for (unsigned int i(0); i < m_width * m_height; ++i)
             {
-                m_p_pixel_data[i * 3]     = r;
-                m_p_pixel_data[i * 3 + 1] = g;
-                m_p_pixel_data[i * 3 + 2] = b;
+                m_p_pixel_data[i] = aPixelValue;
             }
         }
     }

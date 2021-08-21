@@ -106,6 +106,19 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //******************************************************************************
 using namespace std;
 
+// Dont need typedef in c++
+// Decided to cache the bbox corners for each thread to access later
+struct RayTracerInfo
+{
+	Vec3 detector_position;
+	Vec3 origin;
+	Vec3 up;
+	Vec3 right;
+	Light light;
+	Vec3 upper_bbox_corner;
+	Vec3 lower_bbox_corner;
+	Vec3 range;
+};
 
 //******************************************************************************
 //  Function declarations
@@ -133,13 +146,19 @@ void getBBox(const vector<TriangleMesh>& aMeshSet,
 			 Vec3& anUpperBBoxCorner,
 			 Vec3& aLowerBBoxCorner);
 
+RayTracerInfo initialiseRayTracing(
+	vector<TriangleMesh>& aMeshSet,
+	const Vec3& anUpperBBoxCorner,
+	const Vec3& aLowerBBoxCorner,
+	const unsigned int image_height,
+	const unsigned int image_width,
+	Image& output_image,
+	float lut
+);
+
 void renderLoop(Image& anOutputImage,
 				const vector<TriangleMesh>& aTriangleMeshSet,
-				const Vec3& aDetectorPosition,
-				const Vec3& aRayOrigin,
-				const Vec3& anUpVector,
-				const Vec3& aRightVector,
-				const Light& aLight);
+				RayTracerInfo& rayTracerInfo);
 
 
 //******************************************************************************
@@ -156,6 +175,7 @@ const Vec3 g_green(0, 1, 0);
 const Vec3 g_blue(0, 0, 1);
 
 const Vec3 g_background_colour = g_black;
+RayTracerInfo rayTracerInfo;
 
 
 //-----------------------------
@@ -195,9 +215,6 @@ int main(int argc, char** argv)
 		auto end = chrono::high_resolution_clock::now();
 		cout << "Loading meshes took: " << chrono::duration<double>(end - start).count() << " seconds" << endl << endl;
 
-		// Change the material of the 1st mesh
-		Material material(0.2 * g_red, g_green, g_blue, 1);
-		p_mesh_set[0].setMaterial(material);
 
 		// Start timer for getting the scene box
 		cout << "Getting scene bbox... " << endl;
@@ -210,60 +227,17 @@ int main(int argc, char** argv)
 		getBBox(p_mesh_set, upper_bbox_corner, lower_bbox_corner);
 
 		// Stop and output time taken for getBBox
-		end = chrono::high_resolution_clock::now();
-		auto time_taken = chrono::duration<double>(end - start).count();
-		cout << "Getting bbox took: " << time_taken << " seconds" << endl << endl;
+		float lut = 0.0f;
 
-		// Start timer ray-trace property initialization
-		cout << "Getting initializing ray-tracer properties... " << endl;
-		start = chrono::high_resolution_clock::now();
+		Image output_image(image_width, image_height, lut);
+		rayTracerInfo = initialiseRayTracing(p_mesh_set, upper_bbox_corner, lower_bbox_corner, image_height, image_width, output_image, lut);
 
-		// Initialise the ray-tracer properties
-		Vec3 range = upper_bbox_corner - lower_bbox_corner;
-		Vec3 bbox_centre = lower_bbox_corner + range / 2.0;
-
-		float diagonal = range.getLength();
-
-		Vec3 up(0.0, 0.0, -1.0);
-
-		Vec3 origin(bbox_centre - Vec3(diagonal * 1, 0, 0));
-		Vec3 detector_position(bbox_centre + Vec3(diagonal * 0.6, 0, 0));
-
-		Vec3 direction((detector_position - origin));
-		direction.normalize();
-
-		Image output_image(image_width, image_height, r, g, b);
-
-		Vec3 light_position = origin + up * 100.0;
-		Vec3 light_direction = bbox_centre - light_position;
-		light_direction.normalise();
-		Light light(g_white, light_direction, light_position);
-
-		direction.normalise();
-		Vec3 right(direction.crossProduct(up));	
-		
-		// Stop and output time taken for ray-trace initialization
-		end = chrono::high_resolution_clock::now();
-		time_taken = chrono::duration<double>(end - start).count();
-		cout << "Initializing ray-tracer properties took: " << time_taken << " seconds" << endl << endl;
-
-		// Create a mesh that will go behing the scene (some kind of background)
-		p_mesh_set.push_back(createBackground(upper_bbox_corner, lower_bbox_corner));
-
-		// Start timing renderLoop()
-		cout << "Starting rendering loop... " << endl;
-		start = chrono::high_resolution_clock::now();
 		
 		// Rendering loop
-		renderLoop(output_image, p_mesh_set, detector_position, origin, up, right, light);
+		renderLoop(output_image, p_mesh_set, rayTracerInfo);
 
-		// Stop and output time taken for the rendering loop
-		end = chrono::high_resolution_clock::now();
-		time_taken = chrono::duration<double>(end - start).count();
-		cout << "Rendering loop took: " << time_taken << " seconds" << endl << endl;
-	   
 		// Save the image
-		output_image.saveJPEGFile(output_file_name);
+		output_image.saveTextFile(output_file_name);
 	}
 	// Catch exceptions and error messages
 	catch (const std::exception& e)
@@ -382,12 +356,12 @@ void processCmd(int argc, char** argv,
 				exit(EXIT_FAILURE);
 			}
 		}
-		else if (arg == "-j" || arg == "--jpeg")
+		else if (arg == "-f" || arg == "--filename")
 		{                
 			++i;
 			if (i < argc)
 			{
-				aFileName = argv[i];
+				aFileName = ("./out/" + string(argv[i]));
 			}
 			else
 			{
@@ -549,23 +523,13 @@ TriangleMesh createBackground(const Vec3& anUpperBBoxCorner,
 		anUpperBBoxCorner[0] + range[0] * 0.1f, anUpperBBoxCorner[1] + range[1] * 0.5f, anUpperBBoxCorner[2] + range[2] * 0.5f,
 		anUpperBBoxCorner[0] + range[0] * 0.1f, aLowerBBoxCorner[1] - range[1] * 0.5f, anUpperBBoxCorner[2] + range[2] * 0.5f,
 	};
-
-	std::vector<float> text_coords = {
-		0, 1, 0,
-		1, 1, 0,
-		1, 0, 0,
-		0, 0, 0,
-	};
-
+	
 	std::vector<unsigned int> indices = {
 		0, 1, 2,
 		0, 2, 3,
 	};
 
-	TriangleMesh background_mesh(vertices, indices, text_coords);
-	Image cloud_texture("Bangor_Logo_A1.jpg" /*"cloud2.jpg"*/);
-	background_mesh.setTexture(cloud_texture);
-
+	TriangleMesh background_mesh(vertices, indices);
 	return (background_mesh);
 }
 
@@ -598,15 +562,70 @@ void getBBox(const vector<TriangleMesh>& aMeshSet,
 	}
 }
 
+// Might be too many things going on in here, could pass it a struct instead?
+RayTracerInfo initialiseRayTracing(	
+	vector<TriangleMesh>& aMeshSet,
+	const Vec3& anUpperBBoxCorner,
+	const Vec3& aLowerBBoxCorner,
+	const unsigned int image_height,
+	const unsigned int image_width,
+	Image& output_image,
+	float lut){
+	
+	Vec3 range = anUpperBBoxCorner - aLowerBBoxCorner;
+	Vec3 bbox_centre = aLowerBBoxCorner + range / 2.0;
+
+
+	// Helps me visual the difference in each corner. Which is top, right and forward, etc
+	#ifndef NDEBUG
+		cout << bbox_centre.getX() << ", " << bbox_centre.getY() << ", " << bbox_centre.getZ() << endl;
+		cout << aLowerBBoxCorner.getX() << ", " << aLowerBBoxCorner.getY() << ", " << aLowerBBoxCorner.getZ() << endl;
+		cout << anUpperBBoxCorner.getX() << ", " << anUpperBBoxCorner.getY() << ", " << anUpperBBoxCorner.getZ() << endl;
+	#endif
+
+	float diagonal = range.getLength(); // Diagonal distance between the upper and lower corner
+
+	Vec3 up(0.0, 0.0, -1.0);
+
+	Vec3 origin(bbox_centre - Vec3(diagonal * 1, 0, 0)); // originall * 1
+	Vec3 detector_position(bbox_centre + Vec3(diagonal * 0.6, 0, 0));
+
+	Vec3 direction((detector_position - origin));
+	direction.normalize();
+
+	output_image = Image(image_width, image_height, lut);
+
+	Vec3 light_position = origin;
+	Vec3 light_direction = bbox_centre - light_position;
+	light_direction.normalise();
+	Light light(g_white, light_direction, light_position);
+
+	direction.normalise();
+	Vec3 right(direction.crossProduct(up));	
+
+	// Creates mesh that will go behind the scene
+	// Dont need this really
+	// aMeshSet.push_back(createBackground(anUpperBBoxCorner, aLowerBBoxCorner));
+
+	RayTracerInfo info {
+		detector_position,
+		origin,
+		up,
+		right,
+		light,
+		anUpperBBoxCorner,
+		aLowerBBoxCorner,
+		range
+	};
+
+	return info;
+}
+
 
 //-------------------------------------------------------------
 void renderLoop(Image& anOutputImage,
 				  const vector<TriangleMesh>& aTriangleMeshSet,
-				  const Vec3& aDetectorPosition,
-				  const Vec3& aRayOrigin,
-				  const Vec3& anUpVector,
-				  const Vec3& aRightVector,
-				  const Light& aLight)
+				  RayTracerInfo& rayTracerInfo)
 //-------------------------------------------------------------
 {
 	// Initialise some parameters
@@ -623,190 +642,103 @@ void renderLoop(Image& anOutputImage,
 
 	// Process every row
 	float inf = std::numeric_limits<float>::infinity();
+
 	std::vector<float> z_buffer(anOutputImage.getWidth() * anOutputImage.getHeight(), inf);
 
-	for (int row = 0; row < anOutputImage.getHeight(); ++row)
-	{
-		// Process every column
-		for (int col = 0; col < anOutputImage.getWidth(); ++col)
-		{
-			float v_offset = pixel_spacing[1] * (0.5 + row - anOutputImage.getHeight() / 2.0);
-			float u_offset = pixel_spacing[0] * (0.5 + col - anOutputImage.getWidth() / 2.0);
+	// Process all allocated pixels
+	for(int pixel = 0; pixel < anOutputImage.getWidth() * anOutputImage.getHeight(); ++pixel){
+		
+		// x,y of pixel in the image
+		unsigned int row = pixel / anOutputImage.getWidth();
+		unsigned int col = pixel % anOutputImage.getWidth();
+		
+		float v_offset = pixel_spacing[1] * (0.5 + row - anOutputImage.getHeight() / 2.0);
+		float u_offset = pixel_spacing[0] * (0.5 + col - anOutputImage.getWidth() / 2.0);
 
-			// Initialise the ray direction for this pixel
-			Vec3 direction = aDetectorPosition + anUpVector * v_offset + aRightVector * u_offset - aRayOrigin;
-			direction.normalise();
-			Ray ray(aRayOrigin, direction);
+		// Initialise the ray direction for this pixel
+		Vec3 direction = rayTracerInfo.detector_position + rayTracerInfo.up * v_offset + rayTracerInfo.right * u_offset - rayTracerInfo.origin;
+		direction.normalise();
+		Ray ray(rayTracerInfo.origin, direction);
 
-			const TriangleMesh* p_intersected_object = 0;
-			const Triangle* p_intersected_triangle = 0;
+		const TriangleMesh* p_intersected_object = 0;
+		const Triangle* p_intersected_triangle = 0;
 
-			// Process every mesh
-			for (std::vector<TriangleMesh>::const_iterator mesh_ite = aTriangleMeshSet.begin();
-					mesh_ite != aTriangleMeshSet.end();
-					++mesh_ite)
-			{
-				// The ray intersect the mesh's bbox
-				if (mesh_ite->intersectBBox(ray))
-				{
-					// Process all the triangles of the mesh
-					for (unsigned int triangle_id = 0;
-							triangle_id < mesh_ite->getNumberOfTriangles();
-							++triangle_id)
-					{
-						// Retrievethe triangle
-						const Triangle& triangle = mesh_ite->getTriangle(triangle_id);
+		std::vector<float> intersect_points;
+		intersect_points.reserve(10); // can change
 
-						// Retrieve the intersection if any
-						float t;
-						bool intersect = ray.intersect(triangle, t);
+		// Process each mesh
+		for(std::vector<TriangleMesh>::const_iterator mesh_ite = aTriangleMeshSet.begin();
+				mesh_ite != aTriangleMeshSet.end();
+				++mesh_ite){
+			
+			// The ray intersects with the mesh's bbox	
+			if(mesh_ite->intersectBBox(ray)){
+				
+				// Process all triangles of the mesh
+				for(unsigned int triangle_id = 0; triangle_id < mesh_ite->getNumberOfTriangles(); ++triangle_id){
+					const Triangle& triangle = mesh_ite->getTriangle(triangle_id);
+					
+					// Retrieve intersect if any
+					float t;
+					bool intersect = ray.intersect(triangle, t);
 
-						// The ray interescted the triangle
-						if (intersect)
-						{
-							// Here is where i need to do things - Need to get the intersect and work out the different between the two
-							// The intersection is closer to the view point than the previously recorded intersection
-							// Update the pixel value
-							if (z_buffer[row * anOutputImage.getWidth() + col] > t)
-							{
-								z_buffer[row * anOutputImage.getWidth() + col] = t;
-
-								p_intersected_object = &(*mesh_ite);
-								p_intersected_triangle = &triangle;
-							}
-						}
-					}
-				}
-			}
-
-			// An interesection was found
-			if (p_intersected_object && p_intersected_triangle)
-			{
-				float t = z_buffer[row * anOutputImage.getWidth() + col];
-				Vec3 point_hit = ray.getOrigin() + t * ray.getDirection();
-				Material material = p_intersected_object->getMaterial();
-				Vec3 colour = applyShading(aLight, material, p_intersected_triangle->getNormal(), point_hit, ray.getOrigin());
-
-				unsigned char r = 0;
-				unsigned char g = 0;
-				unsigned char b = 0;
-
-				// Define the shadow ray
-				Vec3 shadow_ray_direction = aLight.getPosition() - point_hit;
-				shadow_ray_direction.normalise();
-				Ray shadow_ray(point_hit, shadow_ray_direction);
-
-				bool is_point_in_shadow = false;
-
-				// Process every mesh
-				for (std::vector<TriangleMesh>::const_iterator mesh_ite = aTriangleMeshSet.begin();
-						mesh_ite != aTriangleMeshSet.end();
-						++mesh_ite)
-				{
-					// Process all the triangles of the mesh
-					for (unsigned int triangle_id = 0;
-							triangle_id < mesh_ite->getNumberOfTriangles();
-							++triangle_id)
-					{
-						// Retrievethe triangle
-						const Triangle& triangle = mesh_ite->getTriangle(triangle_id);
-
-						if (&triangle != p_intersected_triangle)
-						{
-							// Retrieve the intersection if any
-							float t;
-							bool intersection = shadow_ray.intersect(triangle, t);
-							if (intersection && t > 0.0000001)
-							{
-								is_point_in_shadow = true;
-								break;
-							}
-						}
+					// checks if the intersect is with the dragon
+					// &*?? lol
+					if(intersect && &*mesh_ite == &aTriangleMeshSet[0] && t > 0.0000001){
+						intersect_points.push_back(t);
+						p_intersected_object = &(*mesh_ite);
+						p_intersected_triangle = &triangle;
 					}
 				}
 
-				// Apply soft shadows
-				if (is_point_in_shadow)
-				{
-					colour[0] *= 0.25;
-					colour[1] *= 0.25;
-					colour[2] *= 0.25;
-				}
-
-				const Image& texture = p_intersected_object->getTexture();
-
-				// Use texturing
-				if (texture.getWidth() * texture.getHeight())
-				{
-					// Get the position of the intersection
-
-					Vec3 P = aRayOrigin + t * direction;
-
-					// See https://www.scratchapixel.com/lessons/3d-basic-rendering/ray-tracing-rendering-a-triangle/barycentric-coordinates
-					Vec3 A = p_intersected_triangle->getP1();
-					Vec3 B = p_intersected_triangle->getP2();
-					Vec3 C = p_intersected_triangle->getP3();
-
-					Triangle ABC(A, B, C);
-					Triangle ABP(A, B, P);
-					Triangle BCP(B, C, P);
-					Triangle CAP(C, A, P);
-
-					float area_ABC = ABC.getArea();
-					float u = CAP.getArea() / area_ABC;
-					float v = ABP.getArea() / area_ABC;
-					float w = BCP.getArea() / area_ABC;
-
-					// Getthe texel cooredinate
-					Vec3 texel_coord(w * p_intersected_triangle->getTextCoord1() + u * p_intersected_triangle->getTextCoord2() + v * p_intersected_triangle->getTextCoord3());
-
-					unsigned char texel_r;
-					unsigned char texel_g;
-					unsigned char texel_b;
-
-					// Retrieve the pixel value from the texture
-					texture.getPixel(texel_coord[0] * (texture.getWidth() - 1),
-						texel_coord[1] * (texture.getHeight() - 1),
-						texel_r, texel_g, texel_b);
-
-					colour[0] *= texel_r;
-					colour[1] *= texel_g;
-					colour[2] *= texel_b;
-
-					// Clamp the value to the range 0 to 255
-					if (colour[0] < 0) r = 0;
-					else if (colour[0] > 255) r = 255;
-					else r = int(colour[0]);
-
-					if (colour[1] < 0) g = 0;
-					else if (colour[1] > 255) g = 255;
-					else g = int(colour[1]);
-
-					if (colour[2] < 0) b = 0;
-					else if (colour[2] > 255) b = 255;
-					else b = int(colour[2]);
-				}
-				else
-				{
-					// Convert from float to UCHAR and
-					// clamp the value to the range 0 to 255
-					if (255.0 * colour[0] < 0) r = 0;
-					else if (255.0 * colour[0] > 255) r = 255;
-					else r = int(255.0 * colour[0]);
-
-					if (255.0 * colour[1] < 0) g = 0;
-					else if (255.0 * colour[1] > 255) g = 255;
-					else g = int(255.0 * colour[1]);
-
-					if (255.0 * colour[2] < 0) b = 0;
-					else if (255.0 * colour[2] > 255) b = 255;
-					else b = int(255.0 * colour[2]);
-				}
-
-				// Update the pixel value
-				anOutputImage.setPixel(col, row, r, g, b);
+				intersect_points.shrink_to_fit(); // this doesnt effect time too much
 			}
 		}
+		// cout << intersect_points << endl;
+
+		// Sets the distance values for all the pixels
+		float distance = 0;
+		if(p_intersected_object && p_intersected_triangle){
+
+			if(intersect_points.size() % 2 == 0){
+				sort(intersect_points.begin(), intersect_points.end());
+				
+				for(int i = 0; i < intersect_points.size(); i+=2){
+					distance += intersect_points[i + 1] - intersect_points[i];
+				}
+			} else{
+				cout << "Only one intersect on this ray" << endl;
+				// Not sure how to deal with artifact
+				// distance = z_buffer[row * anOutputImage.getWidth() + col - 1];
+			}
+
+			// some of these values be assigned, need to give them a default color
+			// Do I even need a buffer? dont it all per pixel in one loop means probably not
+			z_buffer[row * anOutputImage.getWidth() + col] = distance;
+		}
+
+		// Visualisation the pixel
+
+		// Abitrary value to clamp distance
+		// keeping the zeros because they represent the min values for the clamping
+
+		distance = distance * 0.1;
+		// cout << distance << endl;
+		// distance = (distance - 0) / 50 * (1 - 0) + 0;
+		// cout << distance << endl;
+
+		// Divide distance by 10 to cm - the distance is considered to be in mm
+
+		// 80 keV input
+		// use 80.000 for kev output
+		// 0 smallest output
+		// I incident output
+
+		// 0.3971 is the mju of bone - lin attenuation coefficient
+		// add this to variables later
+		float photonOut = 80.000f * exp(-(0.3971f * distance));
+
+		anOutputImage.setPixel(col, row, photonOut);
 	}
 }
 

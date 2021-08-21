@@ -28,8 +28,8 @@ def printRawTable(df):
                 for nodes in np.sort(df[test_Processor & test_Compiler & test_Parallelisation]["Number of nodes"].unique()):
                     test_Nodes=df["Number of nodes"] == nodes;
 
-                    for thread_number in np.sort(df[test_Processor & test_Compiler & test_Parallelisation & test_Nodes]["Number of threads/processes per node"].unique()):
-                        test_thread_number=df["Number of threads/processes per node"] == thread_number;
+                    for thread_number in np.sort(df[test_Processor & test_Compiler & test_Parallelisation & test_Nodes]["Number of threads"].unique()):
+                        test_thread_number=df["Number of threads"] == thread_number;
 
                         runtime = df[test_Processor & test_Compiler & test_Parallelisation & test_Nodes & test_thread_number]["Runtime in sec"]; # / 60;
 
@@ -45,6 +45,8 @@ def printRawTable(df):
                             release_date = "Q1 2018";
                         elif processor == "AMD FX(tm)-8350 Eight-Core Processor @ 4.00GHz":
                             release_date = "Q4 2012";
+                        else:
+                            release_date = "N/A"
 
                         parallelisation_string = parallelisation;
 
@@ -89,8 +91,8 @@ def displayRuntime(df):
                     X = [];
                     Y = [];
 
-                    for thread_number in np.sort(df[test_Processor & test_Compiler & test_Parallelisation & test_Nodes]["Number of threads/processes per node"].unique()):
-                        test_thread_number=df["Number of threads/processes per node"] == thread_number;
+                    for thread_number in np.sort(df[test_Processor & test_Compiler & test_Parallelisation & test_Nodes]["Number of threads"].unique()):
+                        test_thread_number=df["Number of threads"] == thread_number;
 
                         runtime = df[test_Processor & test_Compiler & test_Parallelisation & test_Nodes & test_thread_number]["Runtime in sec"]; # / 60;
 
@@ -142,7 +144,7 @@ def displaySpeedup(df):
 
 
             test1 = df["Parallelisation"] == "None";
-            test2 = df["Number of threads/processes per node"] == 0;
+            test2 = df["Number of threads"] == 0;
             test3 = df["Number of nodes"] == 1;
             reference = df[test_Compiler & test_Processor & test1 & test2 & test3]["Runtime in sec"];
 
@@ -155,14 +157,15 @@ def displaySpeedup(df):
                     X = [];
                     Y = [];
 
-                    for thread_number in np.sort(df[test_Processor & test_Compiler & test_Parallelisation & test_Nodes]["Number of threads/processes per node"].unique()):
-                        test_thread_number=df["Number of threads/processes per node"] == thread_number;
+                    for thread_number in np.sort(df[test_Processor & test_Compiler & test_Parallelisation & test_Nodes]["Number of threads"].unique()):
+                        test_thread_number=df["Number of threads"] == thread_number;
 
                         runtime = df[test_Processor & test_Compiler & test_Parallelisation & test_Nodes & test_thread_number]["Runtime in sec"];
 
                         i = [];
                         for temp in runtime:
                             Y.append(reference / temp);
+                            print(Y)
                             X.append(thread_number * nodes);
 
                         parallelisation_string = parallelisation;
@@ -190,7 +193,7 @@ def displaySpeedup(df):
     ax.legend(loc='lower right',
               ncol=1, fancybox=True, shadow=True);
 
-    plt.xticks(df["Number of threads/processes per node"].unique());
+    plt.xticks(df["Number of threads"].unique());
 
     plt.xlabel('Total number of threads/processes');
     plt.ylabel('Speedup');
@@ -201,9 +204,9 @@ def displaySpeedup(df):
 
 colours = list(mcolors.TABLEAU_COLORS);
 
-df = pd.read_csv("timing.csv");
+df = pd.read_csv("./bin-debug-amd/timing.csv");
 
-df = df.sort_values(by=['Parallelisation', 'Number of nodes', 'Number of threads/processes per node'])
+df = df.sort_values(by=['Parallelisation', 'Number of nodes', 'Number of threads'])
 
 
 printRawTable(df);

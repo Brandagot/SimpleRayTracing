@@ -12,7 +12,7 @@ import matplotlib.colors as mcolors
 
 colours = list(mcolors.TABLEAU_COLORS);
 
-df = pd.read_csv("runtimes.csv");
+df = pd.read_csv("./bin-debug-amd/timing.csv");
 
 
 print("| Processor                                      | Release date | Parallelisation     | Release | Debug | Compiler       |")

@@ -3,11 +3,11 @@
  *
  *   @file       Image.inl
  *
- *   @brief      Class to manage 2D RGB images.
+ *   @brief      Class to manage 2D greyscale images in float.
  *
  *   @version    1.0
  *
- *   @date       06/10/2020
+ *   @date       12/08/2021
  *
  *   @author     Dr Franck P. Vidal
  *
@@ -33,45 +33,17 @@ inline Image::Image():
 }
 
 
-//-----------------------------------------
-inline Image::Image(const char* aFileName):
-//-----------------------------------------
-        m_p_pixel_data(0),
-        m_width(0),
-        m_height(0)
-//-----------------------------------------
-{
-    // Load a JPEG file
-    loadJPEGFile(aFileName);
-}
-
-
-//------------------------------------------------
-inline Image::Image(const std::string& aFileName):
-//------------------------------------------------
-        m_p_pixel_data(0),
-        m_width(0),
-        m_height(0)
-//------------------------------------------------
-{
-    // Load a JPEG file
-    loadJPEGFile(aFileName);
-}
-
-
 //----------------------------------------
 inline Image::Image(unsigned int aWidth,
                     unsigned int aHeight,
-                    unsigned char r,
-                    unsigned char g,
-                    unsigned char b):
+                    float aPixelValue):
 //----------------------------------------
         m_p_pixel_data(0),
         m_width(0),
         m_height(0)
 //----------------------------------------
 {
-    setSize(aWidth, aHeight, r, g, b);
+    setSize(aWidth, aHeight, aPixelValue);
 }
 
 
@@ -102,26 +74,30 @@ inline void Image::destroy()
 
 
 //-----------------------------------------------------------
-inline void Image::loadJPEGFile(const std::string& aFileName)
+inline void Image::saveJPEGFile(const std::string& aFileName,
+                                float vmin,
+                                float vmax)
 //-----------------------------------------------------------
 {
-    loadJPEGFile(aFileName.data());
-}
-
-
-//-----------------------------------------------------------
-inline void Image::saveJPEGFile(const std::string& aFileName)
-//-----------------------------------------------------------
-{
-    saveJPEGFile(aFileName.data());
+    saveJPEGFile(aFileName.data(), vmin, vmax);
 }
 
 
 //----------------------------------------------------------
-inline void Image::saveTGAFile(const std::string& aFileName)
+inline void Image::saveTGAFile(const std::string& aFileName,
+                               float vmin,
+                               float vmax)
 //----------------------------------------------------------
 {
-    saveTGAFile(aFileName.data());
+    saveTGAFile(aFileName.data(), vmin, vmax);
+}
+
+
+//-----------------------------------------------------------
+inline void saveTextFile(const std::string& aFileName)
+//-----------------------------------------------------------
+{
+    saveTextFile(aFileName.data());
 }
 
 
@@ -151,29 +127,25 @@ inline unsigned int Image::getHeight() const
 }
 
 
-//------------------------------------------
-inline unsigned char* Image::getData() const
-//------------------------------------------
+//----------------------------------
+inline float* Image::getData() const
+//----------------------------------
 {
     return (m_p_pixel_data);
 }
 
 
-//------------------------------------------
+//--------------------------------------------
 inline void Image::setPixel(unsigned int i,
                             unsigned int j,
-                            unsigned char r,
-                            unsigned char g,
-                            unsigned char b)
-//------------------------------------------
+                            float aPixelValue)
+//--------------------------------------------
 {
     // The 2D index is valid
     if (i < m_width && j < m_height)
     {
-        unsigned int index = j * m_width * 3 + i * 3;
-        m_p_pixel_data[index] = r;
-        m_p_pixel_data[index + 1] = g;
-        m_p_pixel_data[index + 2] = b;
+        unsigned int index = j * m_width + i;
+        m_p_pixel_data[index] = aPixelValue;
     }
     // The 2D index is not valid
     else
@@ -188,21 +160,17 @@ inline void Image::setPixel(unsigned int i,
 }
 
 
-//-------------------------------------------------
+//---------------------------------------------------
 inline void Image::getPixel(unsigned int i,
                             unsigned int j,
-                            unsigned char& r,
-                            unsigned char& g,
-                            unsigned char& b) const
-//-------------------------------------------------
+                            float& aPixelValue) const
+//---------------------------------------------------
 {
     // The 2D index is valid
     if (i < m_width && j < m_height)
     {
-        unsigned int index = j * m_width * 3 + i * 3;
-        r = m_p_pixel_data[index];
-        g = m_p_pixel_data[index + 1];
-        b = m_p_pixel_data[index + 2];
+        unsigned int index = j * m_width + i;
+        aPixelValue = m_p_pixel_data[index];
     }
     // The 2D index is not valid
     else
@@ -214,4 +182,35 @@ inline void Image::getPixel(unsigned int i,
 
         throw std::out_of_range(error_message.str());
     }
+}
+
+
+//----------------------------------------------------------------
+inline std::vector<unsigned char> Image::applyLUT(float vmin, float vmax)
+//----------------------------------------------------------------
+{
+    std::vector<unsigned char> p_pixel_data(3 * m_width * m_height);
+    for (unsigned int i = 0; i < m_width * m_height; ++i)
+    {
+        if (m_p_pixel_data[i] < vmin)
+        {
+            p_pixel_data[i * 3] = 0;
+            p_pixel_data[i * 3 + 1] = 0;
+            p_pixel_data[i * 3 + 2] = 0;
+        }
+        else if (m_p_pixel_data[i] > vmax)
+        {
+            p_pixel_data[i * 3] = 255;
+            p_pixel_data[i * 3 + 1] = 255;
+            p_pixel_data[i * 3 + 2] = 255;
+        }
+        else
+        {
+            p_pixel_data[i] = round(255.0 * (m_p_pixel_data[i * 3] - vmin) / (vmax - vmin));
+            p_pixel_data[i] = round(255.0 * (m_p_pixel_data[i * 3 + 1] - vmin) / (vmax - vmin));
+            p_pixel_data[i] = round(255.0 * (m_p_pixel_data[i * 3] - vmin) / (vmax - vmin));
+        }
+    }
+    
+    return p_pixel_data;
 }

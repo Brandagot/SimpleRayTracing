@@ -226,9 +226,6 @@ void processCmd(
 	string& aFileName,
 	unsigned int& aWidth,
 	unsigned int& aHeight,
-	unsigned char& r,
-	unsigned char& g,
-	unsigned char& b,
 	unsigned int& number_of_threads
 );
 
@@ -258,9 +255,7 @@ RayTracerInfo initialiseRayTracing(
 	const unsigned int image_height,
 	const unsigned int image_width,
 	Image& output_image,
-	const unsigned char r,
-	const unsigned char g,
-	const unsigned char b
+	float lut
 );
 
 void pthreadWorkLoadAllocation(
@@ -294,10 +289,7 @@ int main(int argc, char** argv){
 		unsigned int image_width = g_default_image_width;
 		unsigned int image_height= g_default_image_height;
 
-		// Default background color is set to grey - might try size the viewplane to match the entire view
-		unsigned char r = 128;
-		unsigned char g = 128;
-		unsigned char b = 128;
+		float lut = 0.0f;
 		
 		// Default number of threads
 		unsigned int number_of_threads = 1;
@@ -305,8 +297,7 @@ int main(int argc, char** argv){
 		// updates above defaults if passed command args
 		processCmd(argc, argv, 
 			output_file_name,
-			image_width, image_height,
-			r, g, b, number_of_threads);
+			image_width, image_height, number_of_threads);
 
 		// Loading polygon meshes
 		cout << "Loading polygon meshes" << endl << endl;
@@ -326,7 +317,7 @@ int main(int argc, char** argv){
 		// dont really get it. Gets the direction between the start anbd the 
 		// Initialise ray-tracer properties
 		Image output_image;
-		RayTracerInfo rayTracerInfo = initialiseRayTracing(p_mesh_set, upper_bbox_corner, lower_bbox_corner, image_height, image_width, output_image, r, g, b);
+		RayTracerInfo rayTracerInfo = initialiseRayTracing(p_mesh_set, upper_bbox_corner, lower_bbox_corner, image_height, image_width, output_image, lut);
 
 		// Allocate work for Pthreads
 		// Need to change PThread data to accept RayTracerInfo
@@ -346,7 +337,7 @@ int main(int argc, char** argv){
 			pthread_join(p_thread_data[i].m_thread_id, NULL);
 		}
 
-		output_image.saveJPEGFile(output_file_name);
+		output_image.saveTextFile(output_file_name);
 
 	} 
 	// Catch exceptions and error messages
@@ -384,7 +375,6 @@ void showUsage(const std::string& aProgramName)
 void processCmd(int argc, char** argv,
 				string& aFileName,
 				unsigned int& aWidth, unsigned int& aHeight,
-				unsigned char& r, unsigned char& g, unsigned char& b,
 				unsigned int& number_of_threads)
 //-------------------------------------------------------------------
 {
@@ -423,42 +413,7 @@ void processCmd(int argc, char** argv,
 				exit(EXIT_FAILURE);
 			}
 		}
-		else if (arg == "-b" || arg == "--background")
-		{
-			++i;
-			if (i < argc)
-			{
-				r = stoi(argv[i]);
-			}
-			else
-			{
-				showUsage(argv[0]);
-				exit(EXIT_FAILURE);
-			}
-
-			++i;
-			if (i < argc)
-			{
-				g = stoi(argv[i]);
-			}
-			else
-			{
-				showUsage(argv[0]);
-				exit(EXIT_FAILURE);
-			}
-			
-			++i;
-			if (i < argc)
-			{
-				b = stoi(argv[i]);
-			}
-			else
-			{
-				showUsage(argv[0]);
-				exit(EXIT_FAILURE);
-			}
-		}
-		else if (arg == "-j" || arg == "--jpeg")
+		else if (arg == "-f" || arg == "--filename")
 		{                
 			++i;
 			if (i < argc)
@@ -593,9 +548,7 @@ RayTracerInfo initialiseRayTracing(
 	const unsigned int image_height,
 	const unsigned int image_width,
 	Image& output_image,
-	const unsigned char r,
-	const unsigned char g,
-	const unsigned char b){
+	float lut){
 	
 	Vec3 range = anUpperBBoxCorner - aLowerBBoxCorner;
 	Vec3 bbox_centre = aLowerBBoxCorner + range / 2.0;
@@ -618,7 +571,7 @@ RayTracerInfo initialiseRayTracing(
 	Vec3 direction((detector_position - origin));
 	direction.normalize();
 
-	output_image = Image(image_width, image_height, r, g, b);
+	output_image = Image(image_width, image_height, lut);
 
 	Vec3 light_position = origin;
 	Vec3 light_direction = bbox_centre - light_position;
@@ -782,7 +735,7 @@ void* renderLoopCallBack(void* apData){
 					distance += intersect_points[i + 1] - intersect_points[i];
 				}
 			} else{
-				cout << "it dont" << endl;
+				cout << "Only one intersect on this ray" << endl;
 				// Not sure how to deal with artifact
 				// distance = z_buffer[row * p_thread_data->m_output_image.getWidth() + col - 1];
 			}
@@ -794,15 +747,10 @@ void* renderLoopCallBack(void* apData){
 
 		// Visualisation the pixel
 
-		Vec3 color(255, 255, 255); // Default white pixel
-		unsigned char r = 0;
-		unsigned char g = 0;
-		unsigned char b = 0;
-
 		// Abitrary value to clamp distance
 		// keeping the zeros because they represent the min values for the clamping
 
-		distance = distance / 10;
+		distance = distance * 0.1;
 		// cout << distance << endl;
 		// distance = (distance - 0) / 50 * (1 - 0) + 0;
 		// cout << distance << endl;
@@ -817,19 +765,8 @@ void* renderLoopCallBack(void* apData){
 		// 0.3971 is the mju of bone - lin attenuation coefficient
 		// add this to variables later
 		float photonOut = 80.000f * exp(-(0.3971f * distance));
-		photonOut = (photonOut - 0) / (80.000f - 0); // turn this into multiplication
 
-		// cout << photonOut << endl;
-
-		color[0] *= photonOut;
-		color[1] *= photonOut;
-		color[2] *= photonOut;
-
-
-		// printf("%u, %u, %u\n", r, g, b);
-		// cout << col << ", " << row << endl << endl; 
-
-		p_thread_data->m_output_image.setPixel(col, row, color[0], color[1], color[2]);
+		p_thread_data->m_output_image.setPixel(col, row, photonOut);
 	}
 }
 

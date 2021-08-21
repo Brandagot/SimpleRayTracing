@@ -74,6 +74,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pthread.h>
 #include <vector>
 #include <algorithm>
+#include <glm/glm.hpp>
 
 #include <assimp/Importer.hpp>  // C++ importer interface
 #include <assimp/scene.h>       // Output data structure
@@ -164,7 +165,22 @@ class PThreadData{
 		unsigned int m_end_pixel;
 };
 
+// How to define a matrix
+// Rotation matrix, 90 degrees
+glm::mat4x4 rotateMat(
+	std::cos(1.5708),0,std::sin(1.5708),0,
+	0,1,0,0,
+	-std::sin(1.5708),0,std::cos(1.5708),0,
+	0,0,0,1
+);
 
+// Base transform matrix
+glm::mat4x4 transformMatrix(
+	1,0,0,0,
+	0,1,0,0,
+	0,0,1,0,
+	0,0,0,1
+);
 
 // Callback function for PThreads - a thread renders from pixel Ni to Nj, loads is distributed in main
 void* renderLoopCallBack(void* apData);
@@ -178,16 +194,14 @@ void processCmd(
 	string& aFileName,
 	unsigned int& aWidth,
 	unsigned int& aHeight,
-	unsigned char& r,
-	unsigned char& g,
-	unsigned char& b,
 	unsigned int& number_of_threads
 );
 
 // Retrieves a .ply mesh from file and adds it to the set
 void loadMeshes(
 	const std::string& aFileName,
-	vector<TriangleMesh>& aMeshSet
+	vector<TriangleMesh>& aMeshSet,
+	glm::mat4x4 tranformMatrix
 );
 
 // Might be obsolete now that we're going to create a view plane instead
@@ -210,9 +224,7 @@ RayTracerInfo initialiseRayTracing(
 	const unsigned int image_height,
 	const unsigned int image_width,
 	Image& output_image,
-	const unsigned char r,
-	const unsigned char g,
-	const unsigned char b
+	float lut
 );
 
 void pthreadWorkLoadAllocation(
@@ -239,6 +251,8 @@ const Vec3 g_background_color = g_black; // But the background behind the viewpl
 
 std::vector<float> L_buffer; // dont need to lock this, threads only access data based on pixels they have been assigned 
 
+
+
 int main(int argc, char** argv){
 	try{
 		// defualt output file
@@ -249,24 +263,29 @@ int main(int argc, char** argv){
 		unsigned int image_height= g_default_image_height;
 
 		// Default background color is set to grey - might try size the viewplane to match the entire view
-		unsigned char r = 128;
-		unsigned char g = 128;
-		unsigned char b = 128;
+		float lut = 0.0f;
 		
 		// Default number of threads
 		unsigned int number_of_threads = 1;
+
+		glm::mat4x4 transformMatrix(
+			1,0,0,0,
+			0,1,0,0,
+			0,0,1,0,
+			0,0,0,1
+		);
 
 		// updates above defaults if passed command args
 		processCmd(argc, argv, 
 			output_file_name,
 			image_width, image_height,
-			r, g, b, number_of_threads);
+			number_of_threads);
 
 		// Loading polygon meshes
 		cout << "Loading polygon meshes" << endl << endl;
 		
 		vector<TriangleMesh> p_mesh_set;
-		loadMeshes("./dragon.ply", p_mesh_set);
+		loadMeshes("./dragon.ply", p_mesh_set, rotateMat);
 
 		cout <<  "Retreiving scenes bbox" << endl;
  
@@ -280,7 +299,7 @@ int main(int argc, char** argv){
 		// dont really get it. Gets the direction between the start anbd the 
 		// Initialise ray-tracer properties
 		Image output_image;
-		RayTracerInfo rayTracerInfo = initialiseRayTracing(p_mesh_set, upper_bbox_corner, lower_bbox_corner, image_height, image_width, output_image, r, g, b);
+		RayTracerInfo rayTracerInfo = initialiseRayTracing(p_mesh_set, upper_bbox_corner, lower_bbox_corner, image_height, image_width, output_image, lut);
 
 		// Allocate work for Pthreads
 		// Need to change PThread data to accept RayTracerInfo
@@ -302,7 +321,7 @@ int main(int argc, char** argv){
 			pthread_join(p_thread_data[i].m_thread_id, NULL);
 		}
 
-		output_image.saveJPEGFile(output_file_name);
+		output_image.saveTextFile(output_file_name); // TODO: Read JPEG exporter and check if gamma corrected?
 
 	} 
 	// Catch exceptions and error messages
@@ -340,7 +359,6 @@ void showUsage(const std::string& aProgramName)
 void processCmd(int argc, char** argv,
 				string& aFileName,
 				unsigned int& aWidth, unsigned int& aHeight,
-				unsigned char& r, unsigned char& g, unsigned char& b,
 				unsigned int& number_of_threads)
 //-------------------------------------------------------------------
 {
@@ -379,42 +397,7 @@ void processCmd(int argc, char** argv,
 				exit(EXIT_FAILURE);
 			}
 		}
-		else if (arg == "-b" || arg == "--background")
-		{
-			++i;
-			if (i < argc)
-			{
-				r = stoi(argv[i]);
-			}
-			else
-			{
-				showUsage(argv[0]);
-				exit(EXIT_FAILURE);
-			}
-
-			++i;
-			if (i < argc)
-			{
-				g = stoi(argv[i]);
-			}
-			else
-			{
-				showUsage(argv[0]);
-				exit(EXIT_FAILURE);
-			}
-			
-			++i;
-			if (i < argc)
-			{
-				b = stoi(argv[i]);
-			}
-			else
-			{
-				showUsage(argv[0]);
-				exit(EXIT_FAILURE);
-			}
-		}
-		else if (arg == "-j" || arg == "--jpeg")
+		else if (arg == "-f" || arg == "--filename")
 		{                
 			++i;
 			if (i < argc)
@@ -449,7 +432,8 @@ void processCmd(int argc, char** argv,
 	}
 }
 
-void loadMeshes(const std::string& aFileName, vector<TriangleMesh>& aMeshSet){
+// If i want to transform the stuff, i know to apply an transform metrix to the stuff here right?
+void loadMeshes(const std::string& aFileName, vector<TriangleMesh>& aMeshSet, glm::mat4x4 transformMatrix){
 	// Create an instance of the importer class
 	Assimp::Importer importer;
 
@@ -492,10 +476,10 @@ void loadMeshes(const std::string& aFileName, vector<TriangleMesh>& aMeshSet){
 
 				std::vector<float> p_vertices;
 				for(unsigned int vertex_id = 0; vertex_id < p_mesh->mNumVertices; ++vertex_id){
-					// Appends the x,y,z of a vertex to the vertices vector
-					p_vertices.push_back(p_mesh->mVertices[vertex_id].x);
-					p_vertices.push_back(p_mesh->mVertices[vertex_id].y);
-					p_vertices.push_back(p_mesh->mVertices[vertex_id].z);					
+					// Apply transform to vertices (if there is one)
+					p_vertices.push_back((transformMatrix[0][0] * p_mesh->mVertices[vertex_id].x) + (transformMatrix[0][1] * p_mesh->mVertices[vertex_id].y) + (transformMatrix[0][2] * p_mesh->mVertices[vertex_id].z));			
+					p_vertices.push_back((transformMatrix[1][0] * p_mesh->mVertices[vertex_id].x) + (transformMatrix[1][1] * p_mesh->mVertices[vertex_id].y) + (transformMatrix[1][2] * p_mesh->mVertices[vertex_id].z));
+					p_vertices.push_back((transformMatrix[2][0] * p_mesh->mVertices[vertex_id].x) + (transformMatrix[2][1] * p_mesh->mVertices[vertex_id].y) + (transformMatrix[2][2] * p_mesh->mVertices[vertex_id].z));
 				}
 
 				// Load indices
@@ -549,9 +533,7 @@ RayTracerInfo initialiseRayTracing(
 	const unsigned int image_height,
 	const unsigned int image_width,
 	Image& output_image,
-	const unsigned char r,
-	const unsigned char g,
-	const unsigned char b){
+	float lut){
 	
 	Vec3 range = anUpperBBoxCorner - aLowerBBoxCorner;
 	Vec3 bbox_centre = aLowerBBoxCorner + range / 2.0;
@@ -569,12 +551,12 @@ RayTracerInfo initialiseRayTracing(
 	Vec3 up(0.0, 0.0, -1.0);
 
 	Vec3 origin(bbox_centre - Vec3(diagonal * 1, 0, 0)); // originall * 1
-	Vec3 detector_position(bbox_centre + Vec3(diagonal * 0.6, 0, 0));
+	Vec3 detector_position(bbox_centre + Vec3(diagonal * 0.6, 0, 0)); // was 0.6
 
 	Vec3 direction((detector_position - origin));
 	direction.normalize();
 
-	output_image = Image(image_width, image_height, r, g, b);
+	output_image = Image(image_width, image_height, lut);
 
 	Vec3 light_position = origin;
 	Vec3 light_direction = bbox_centre - light_position;
@@ -695,7 +677,6 @@ void* renderLoopCallBack(void* apData){
 		const Triangle* p_intersected_triangle = 0;
 
 		// Process each mesh
-        // Here is were i need to add the L buffer stuff
 		for(std::vector<TriangleMesh>::const_iterator mesh_ite = p_thread_data->m_triangle_mesh_set.begin();
 				mesh_ite != p_thread_data->m_triangle_mesh_set.end();
 				++mesh_ite){
@@ -712,95 +693,27 @@ void* renderLoopCallBack(void* apData){
 					bool intersect = ray.intersect(triangle, t);
 
 					// checks if the intersect is with the dragon
-					// &*?? lol
 					if(intersect && &*mesh_ite == &p_thread_data->m_triangle_mesh_set[0] && t > 0.0000001){
                         float dotProduct = direction.dotProduct(triangle.getNormal());
-                        L_buffer[row * p_thread_data->m_output_image.getWidth() + col - 1] += (dotProduct < 0) ? -t : t; // maybe print and compare distances with the over version? - adding are removing distance based on dotproduct
+                        L_buffer[row * p_thread_data->m_output_image.getWidth() + col] += (dotProduct < 0) ? -t : t; // Apply the L-buffer algorithm for this intersect
 					}
 				}
 			}
 		}
-		// cout << intersect_points << endl;
-
-		// // Sets the distance values for all the pixels
-		// float distance = 0;
-		// if(p_intersected_object && p_intersected_triangle){
-
-		// 	if(intersect_points.size() % 2 == 0){
-		// 		sort(intersect_points.begin(), intersect_points.end());
-				
-		// 		for(int i = 0; i < intersect_points.size(); i+=2){
-		// 			distance += intersect_points[i + 1] - intersect_points[i];
-		// 		}
-		// 	} else{
-		// 		cout << "it dont" << endl;
-		// 		// Not sure how to deal with artifact
-		// 		// distance = z_buffer[row * p_thread_data->m_output_image.getWidth() + col - 1];
-		// 	}
-
-		// 	// some of these values be assigned, need to give them a default color
-		// 	// Do I even need a buffer? dont it all per pixel in one loop means probably not
-		// 	// z_buffer[row * p_thread_data->m_output_image.getWidth() + col] = distance;
-		// }
-
-		// Visualisation the pixel
-
-		// Vec3 color(255, 255, 255); // Default white pixel
-		// unsigned char r = 0;
-		// unsigned char g = 0;
-		// unsigned char b = 0;
-
-		// // Abitrary value to clamp distance
-		// // keeping the zeros because they represent the min values for the clamping
-
-		// distance = distance / 10;
-		// // cout << distance << endl;
-		// // distance = (distance - 0) / 50 * (1 - 0) + 0;
-		// // cout << distance << endl;
-
-		// // Divide distance by 10 to cm - the distance is considered to be in mm
-
-		// // 80 keV input
-		// // use 80.000 for kev output
-		// // 0 smallest output
-		// // I incident output
-
-		// // 0.3971 is the mju of bone - lin attenuation coefficient
-		// // add this to variables later
-		// float photonOut = 80.000f * exp(-(0.3971f * distance));
-		// photonOut = (photonOut - 0) / (80.000f - 0); // turn this into multiplication
-
-		// // cout << photonOut << endl;
-
-		// color[0] *= photonOut;
-		// color[1] *= photonOut;
-		// color[2] *= photonOut;
-
-
-		// // printf("%u, %u, %u\n", r, g, b);
-		// // cout << col << ", " << row << endl << endl; 
-
-		// p_thread_data->m_output_image.setPixel(col, row, color[0], color[1], color[2]);
 	}
 
-    // Second pass for visualisation - could handle this totally different now that the L buffer is stored outside of the threads
+    // Second pass for visualisation
     for(int pixel = p_thread_data->m_start_pixel; pixel <= p_thread_data->m_end_pixel; ++pixel){
-        Vec3 color(255, 255, 255); // default color
-
 		// x,y of pixel in the image
 		unsigned int row = pixel / p_thread_data->m_output_image.getWidth();
 		unsigned int col = pixel % p_thread_data->m_output_image.getWidth();
 
-        float distance = L_buffer[row * p_thread_data->m_output_image.getWidth() + col] * 0.1; // converting the distance to cm
+        float distance = L_buffer[row * p_thread_data->m_output_image.getWidth() + col] * 0.1; // converting the distance to cm for the attenuation calc
 
-        float photonOut = 80.000f * exp(-(0.3971f * distance));
-        photonOut = photonOut / 80.000f; // scaling it
+		// mju of bone: 0.3971f - go back and find which of Franck's papers I used for this
+        float photonOut = 80.000f * expf(-(0.3971f * distance));
 
-        color[0] *= photonOut;
-        color[1] *= photonOut;
-        color[2] *= photonOut;
-
-        p_thread_data->m_output_image.setPixel(col, row, color[0], color[1], color[2]);
+        p_thread_data->m_output_image.setPixel(col, row, photonOut);
     }
 
 }
