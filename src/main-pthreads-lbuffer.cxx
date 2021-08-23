@@ -168,10 +168,10 @@ class PThreadData{
 // How to define a matrix
 // Rotation matrix, 90 degrees
 glm::mat4x4 rotateMat(
-	std::cos(1.5708),0,std::sin(1.5708),0,
-	0,1,0,0,
-	-std::sin(1.5708),0,std::cos(1.5708),0,
-	0,0,0,1
+	std::cos(0.785398),	0,std::sin(0.785398),0,
+	0,					1,		0,		   0,
+	-std::sin(0.785398),	0,std::cos(0.785398),0,
+	0,					0,		0,  	   1
 );
 
 // Base transform matrix
@@ -274,6 +274,7 @@ int main(int argc, char** argv){
 			0,0,1,0,
 			0,0,0,1
 		);
+		transformMatrix = transformMatrix * rotateMat;
 
 		// updates above defaults if passed command args
 		processCmd(argc, argv, 
@@ -285,7 +286,7 @@ int main(int argc, char** argv){
 		cout << "Loading polygon meshes" << endl << endl;
 		
 		vector<TriangleMesh> p_mesh_set;
-		loadMeshes("./dragon.ply", p_mesh_set, rotateMat);
+		loadMeshes("./dragon.ply", p_mesh_set, transformMatrix);
 
 		cout <<  "Retreiving scenes bbox" << endl;
  
