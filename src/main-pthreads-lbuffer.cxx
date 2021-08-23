@@ -274,7 +274,7 @@ int main(int argc, char** argv){
 			0,0,1,0,
 			0,0,0,1
 		);
-		transformMatrix = transformMatrix * rotateMat;
+		// transformMatrix = transformMatrix * rotateMat;
 
 		// updates above defaults if passed command args
 		processCmd(argc, argv, 
@@ -309,7 +309,7 @@ int main(int argc, char** argv){
 		
 		cout << "Creating and Executing threads" << endl << endl;
 
-    	L_buffer = std::vector<float>(output_image.getWidth() * output_image.getHeight(), 0.0f);
+    	L_buffer = std::vector<float>(output_image.getWidth() * output_image.getHeight(), 80.000f);
 
 		// Create threads, executes callback on each thread
 		for(int i = 0; i < number_of_threads; i++){
@@ -686,6 +686,7 @@ void* renderLoopCallBack(void* apData){
 			if(mesh_ite->intersectBBox(ray)){
 				
 				// Process all triangles of the mesh
+				float distance = 0.0f;
 				for(unsigned int triangle_id = 0; triangle_id < mesh_ite->getNumberOfTriangles(); ++triangle_id){
 					const Triangle& triangle = mesh_ite->getTriangle(triangle_id);
 					
@@ -696,27 +697,27 @@ void* renderLoopCallBack(void* apData){
 					// checks if the intersect is with the dragon
 					if(intersect && &*mesh_ite == &p_thread_data->m_triangle_mesh_set[0] && t > 0.0000001){
                         float dotProduct = direction.dotProduct(triangle.getNormal());
-                        L_buffer[row * p_thread_data->m_output_image.getWidth() + col] += (dotProduct < 0) ? -t : t; // Apply the L-buffer algorithm for this intersect
+						distance += (dotProduct < 0) ? -t : t;
 					}
 				}
+				// Buffer save code here
+				// mju of bone: 0.3971f - go back and find which of Franck's papers I used for this
+				// photonOutput
+				L_buffer[row * p_thread_data->m_output_image.getWidth() + col] = L_buffer[row * p_thread_data->m_output_image.getWidth() + col] * exp(-(0.3971f * (distance * 0.1))); // Converting distance to cm
 			}
 		}
 	}
 
-    // Second pass for visualisation
-    for(int pixel = p_thread_data->m_start_pixel; pixel <= p_thread_data->m_end_pixel; ++pixel){
+	// image output loop
+	for(int pixel = p_thread_data->m_start_pixel; pixel <= p_thread_data->m_end_pixel; pixel++){
 		// x,y of pixel in the image
 		unsigned int row = pixel / p_thread_data->m_output_image.getWidth();
 		unsigned int col = pixel % p_thread_data->m_output_image.getWidth();
 
-        float distance = L_buffer[row * p_thread_data->m_output_image.getWidth() + col] * 0.1; // converting the distance to cm for the attenuation calc
+		p_thread_data->m_output_image.setPixel(col, row, L_buffer[row * p_thread_data->m_output_image.getWidth() + col]);
+	}
 
-		// mju of bone: 0.3971f - go back and find which of Franck's papers I used for this
-        float photonOut = 80.000f * expf(-(0.3971f * distance));
-
-        p_thread_data->m_output_image.setPixel(col, row, photonOut);
-    }
-
+	std::cout << "pop" << std::endl;
 }
 
 // Changes i've made to this
