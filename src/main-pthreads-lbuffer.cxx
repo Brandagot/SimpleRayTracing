@@ -233,6 +233,8 @@ void pthreadWorkLoadAllocation(
 	Image& output_image
 );
 
+template <typename T> int signum(T val);
+
 //******************************************************************************
 //  Constant global variables
 //******************************************************************************
@@ -286,7 +288,7 @@ int main(int argc, char** argv){
 		cout << "Loading polygon meshes" << endl << endl;
 		
 		vector<TriangleMesh> p_mesh_set;
-		loadMeshes("./dragon.ply", p_mesh_set, transformMatrix);
+		loadMeshes("./dragon_monkey.ply", p_mesh_set, transformMatrix);
 
 		cout <<  "Retreiving scenes bbox" << endl;
  
@@ -643,6 +645,12 @@ void pthreadWorkLoadAllocation(
 	cout << endl;
 }
 
+// typesafe signum function
+// https://stackoverflow.com/questions/1903954/is-there-a-standard-sign-function-signum-sgn-in-c-c
+template <typename T> int signum(T val){
+	return(T(0) < val) - (val < T(0));
+}
+
 void* renderLoopCallBack(void* apData){
 	PThreadData* p_thread_data = static_cast<PThreadData*>(apData);
 	// cout << p_thread_data->m_ray_tracer_info.upper_bbox_corner << endl;
@@ -682,11 +690,14 @@ void* renderLoopCallBack(void* apData){
 				mesh_ite != p_thread_data->m_triangle_mesh_set.end();
 				++mesh_ite){
 			
+			if(L_buffer[row * p_thread_data->m_output_image.getWidth() + col] == -1) break; // If the pixel has been flagged before, don't run it for the next mesh
+			
 			// The ray intersects with the mesh's bbox	
 			if(mesh_ite->intersectBBox(ray)){
 				
 				// Process all triangles of the mesh
 				float distance = 0.0f;
+				int signSum = 0; // Used for validation
 				for(unsigned int triangle_id = 0; triangle_id < mesh_ite->getNumberOfTriangles(); ++triangle_id){
 					const Triangle& triangle = mesh_ite->getTriangle(triangle_id);
 					
@@ -696,14 +707,27 @@ void* renderLoopCallBack(void* apData){
 
 					// checks if the intersect is with the dragon
 					if(intersect && &*mesh_ite == &p_thread_data->m_triangle_mesh_set[0] && t > 0.0000001){
-                        float dotProduct = direction.dotProduct(triangle.getNormal());
-						distance += (dotProduct < 0) ? -t : t;
+                        // float dotProduct = direction.dotProduct(triangle.getNormal());
+						// distance += (dotProduct < 0) ? -t : t;			
+						int sign = signum(direction.dotProduct(triangle.getNormal()));
+						distance += (sign * t);
+						signSum += sign; // Method of finding artefacts taken from francks paper: http://www.fpvidal.net/research/pdf/Vidal2016ComputMedImagingGraph.pdf 
 					}
 				}
 				// Buffer save code here
-				// mju of bone: 0.3971f - go back and find which of Franck's papers I used for this
-				// photonOutput
-				L_buffer[row * p_thread_data->m_output_image.getWidth() + col] = L_buffer[row * p_thread_data->m_output_image.getWidth() + col] * exp(-(0.3971f * (distance * 0.1))); // Converting distance to cm
+				// mju of bone: 0.3971f - go back and find which of Franck's papers I used for this http://www.fpvidal.net/research/pdf/Vidal2016ComputMedImagingGraph.pdf
+				float attenuationCoefficient = 0;
+				if(&(*mesh_ite) == &(p_thread_data->m_triangle_mesh_set[0])){
+					attenuationCoefficient = 0.1037f; // Soft tissue
+				} else {
+					attenuationCoefficient = 0.3971f; // Bone
+				}
+		
+				if(signSum != 0){
+					L_buffer[row * p_thread_data->m_output_image.getWidth() + col] = -1;
+				} else{
+					L_buffer[row * p_thread_data->m_output_image.getWidth() + col] = L_buffer[row * p_thread_data->m_output_image.getWidth() + col] * exp(-(attenuationCoefficient * (distance * 0.1))); // Converting distance to cm
+				}
 			}
 		}
 	}
@@ -716,9 +740,8 @@ void* renderLoopCallBack(void* apData){
 
 		p_thread_data->m_output_image.setPixel(col, row, L_buffer[row * p_thread_data->m_output_image.getWidth() + col]);
 	}
-
-	std::cout << "pop" << std::endl;
 }
+
 
 // Changes i've made to this
 // Removed material setting code - dont need it in this version
