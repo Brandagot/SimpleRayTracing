@@ -324,6 +324,85 @@ int main(int argc, char** argv){
 			pthread_join(p_thread_data[i].m_thread_id, NULL);
 		}
 
+		// image output loop
+		// Placing error correction here
+		for(int pixel = 0; pixel < output_image.getWidth() * output_image.getHeight(); pixel++){
+			// x,y of pixel in the image
+			unsigned int row = pixel / output_image.getWidth();
+			unsigned int col = pixel % output_image.getWidth();
+
+			float photonOut = L_buffer[row * output_image.getWidth() + col];
+
+			// Need to get the average of all non-zero numbers
+			// This might be a rough method for now - probably super ineffecient. Only does a cross, not square around the pixel -- this works in a + pattern for now, need to change this to be square. Its not a true average
+			if(photonOut == -1){
+				uint maxDepth = 4;
+				std::vector<float> averagingValues;
+
+				float value1 = 0;
+				for(int i = 1; i <= maxDepth; i++){
+					if((row * output_image.getWidth() + (col + i)) > L_buffer.size()){
+						break;
+					}
+
+					if(L_buffer[row * output_image.getWidth() + (col + i)] != -1){
+						value1 = L_buffer[row * output_image.getWidth() + (col + i)];
+						break;
+					}
+				}
+				if(value1 != 0) averagingValues.push_back(value1);
+
+				float value2 = 0;
+				for(int i = 1; i <= maxDepth; i++){
+					if(((row - i) * output_image.getWidth() + col) > L_buffer.size()){
+						break;
+					}
+
+					if(L_buffer[(row - i) * output_image.getWidth() + col] != -1){
+						value2 = L_buffer[(row - i) * output_image.getWidth() + col];
+						break;
+					}
+				}			
+				if(value2 != 0) averagingValues.push_back(value2);
+				
+				float value3 = 0;
+				for(int i = 1; i <= maxDepth; i++){
+					if((row * output_image.getWidth() + (col - i)) > L_buffer.size()){
+						break;
+					}
+
+					if(L_buffer[row * output_image.getWidth() + (col - i)] != -1){
+						value3 = L_buffer[row * output_image.getWidth() + (col - i)];
+						break;
+					}
+				}
+				if(value3 != 0) averagingValues.push_back(value3);
+				
+				float value4 = 0;
+				for(int i = 1; i <= maxDepth; i++){
+					if(((row + i) * output_image.getWidth() + col) > L_buffer.size()){
+						break;
+					}
+
+					if(L_buffer[(row + i) * output_image.getWidth() + col] != -1){
+						value4 = L_buffer[(row + i) * output_image.getWidth() + col];
+						break;
+					}
+				}
+				if(value4 != 0) averagingValues.push_back(value4);
+
+				float averageSum = 0;
+				for(float value : averagingValues){
+					averageSum += value;
+				}
+
+				photonOut = averageSum / averagingValues.size();
+
+			}
+
+			output_image.setPixel(col, row, photonOut);
+		}
+
 		output_image.saveTextFile(output_file_name); // TODO: Read JPEG exporter and check if gamma corrected?
 
 	} 
@@ -730,15 +809,6 @@ void* renderLoopCallBack(void* apData){
 				}
 			}
 		}
-	}
-
-	// image output loop
-	for(int pixel = p_thread_data->m_start_pixel; pixel <= p_thread_data->m_end_pixel; pixel++){
-		// x,y of pixel in the image
-		unsigned int row = pixel / p_thread_data->m_output_image.getWidth();
-		unsigned int col = pixel % p_thread_data->m_output_image.getWidth();
-
-		p_thread_data->m_output_image.setPixel(col, row, L_buffer[row * p_thread_data->m_output_image.getWidth() + col]);
 	}
 }
 
