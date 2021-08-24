@@ -226,14 +226,7 @@ void Image::saveTextFile(const std::string& aFileName)
   	{
         for (int col = 0; col < m_width; ++col)
   		{
-        
-            // Temporary, this isnt how it should be done
-            if(m_p_pixel_data[row * m_width + col] > 80.0f){ // Added to check for  -1 flag
-                p_output_file << m_p_pixel_data[row * m_width + col - 1]; // TEMP
-            } else {
-                p_output_file << m_p_pixel_data[row * m_width + col];
-            }
-
+            p_output_file << m_p_pixel_data[row * m_width + col];
   		    if (col < m_width - 1) p_output_file <<  "\t";
   		}
   		
